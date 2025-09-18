@@ -1,14 +1,16 @@
+// in src/components/Notifications.tsx
 
 import React from 'react';
-import type { Notification, Test } from '../types';
+import type { AppNotification, Test } from '../types';
 
 interface NotificationsProps {
-  notifications: Notification[];
-  onStartTest: (test: Test) => void;
+  notifications: AppNotification[];
+  onStartTest: (test: Test, notificationId: string) => void;
+  onIgnoreTest: (notificationId: string) => void;
   onBack: () => void;
 }
 
-export const Notifications: React.FC<NotificationsProps> = ({ notifications, onStartTest, onBack }) => {
+export const Notifications: React.FC<NotificationsProps> = ({ notifications, onStartTest, onIgnoreTest, onBack }) => {
   const sortedNotifications = [...notifications].sort((a, b) => b.test.id.localeCompare(a.test.id));
 
   return (
@@ -36,12 +38,20 @@ export const Notifications: React.FC<NotificationsProps> = ({ notifications, onS
                   <span><strong className="font-medium text-gray-800 dark:text-gray-200">{notif.test.durationMinutes}</strong> Minutes</span>
                 </div>
               </div>
-              <button
-                onClick={() => onStartTest(notif.test)}
-                className="w-full md:w-auto flex-shrink-0 py-2 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700"
-              >
-                Start Test
-              </button>
+              <div className="flex-shrink-0 flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => onStartTest(notif.test, notif.id)}
+                  className="w-full sm:w-auto py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700"
+                >
+                  Begin Test
+                </button>
+                <button
+                  onClick={() => onIgnoreTest(notif.id)}
+                  className="w-full sm:w-auto py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                >
+                  Ignore
+                </button>
+              </div>
             </div>
           ))
         )}

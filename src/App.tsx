@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-
-// Component Imports
+import { db, auth } from './services/firebase';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc, arrayUnion, onSnapshot, deleteDoc } from "firebase/firestore"; 
+import type firebase from 'firebase/compat/app';
 import { Header } from './components/Header';
 import { McqGeneratorForm } from './components/McqGeneratorForm';
 import { McqList } from './components/McqList';
@@ -16,224 +17,198 @@ import { ManualMcqCreator } from './components/ManualMcqCreator';
 import { AuthPortal } from './components/AuthPortal';
 import { IdVerification } from './components/IdVerification';
 import { Notifications } from './components/Notifications';
-
-// Type Imports
-import type { FormState, MCQ, Test, GeneratedMcqSet, Student, TestAttempt, FollowRequest, Notification as AppNotification, AppUser, CustomFormField } from './types';
+import { TestAnalytics } from './components/TestAnalytics';
 import { Role } from './types';
-
-// Service Imports
-import { auth } from './services/firebase';
+import type { FormState, MCQ, Test, GeneratedMcqSet, Student, TestAttempt, FollowRequest, AppNotification, AppUser, CustomFormField } from './types';
 import { generateMcqs } from './services/geminiService';
 
-// This is required for the v8 compat library
-import type firebase from 'firebase/compat/app';
-
-// TypeScript declarations for global libraries loaded via <script> tags
 declare const jspdf: any;
 declare const docx: any;
+type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics';
 
-type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications';
-
-// Helper to safely read and parse data from localStorage
-type GetInitialState = <T>(key: string, defaultValue: T) => T;
-const getInitialState: GetInitialState = (key, defaultValue) => {
+const getInitialState = <T,>(key: string, defaultValue: T): T => {
     try {
         const item = window.localStorage.getItem(key);
         if (item) {
-            return JSON.parse(item, (k, v) => {
-                if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(v)) {
-                    return new Date(v);
-                }
-                return v;
-            });
+            return JSON.parse(item, (k, v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(v)) ? new Date(v) : v);
         }
-    } catch (error) {
-        console.error(`Error reading localStorage key "${key}":`, error);
-    }
+    } catch (error) { console.error(`Error reading localStorage key "${key}":`, error); }
     return defaultValue;
 };
 
-
 const App: React.FC = () => {
-  // --- STATE MANAGEMENT ---
   const [userMetadata, setUserMetadata] = useState<AppUser[]>(() => getInitialState('userMetadata', []));
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
   const [allGeneratedMcqs, setAllGeneratedMcqs] = useState<GeneratedMcqSet[]>(() => getInitialState('allGeneratedMcqs', []));
-  const [publishedTests, setPublishedTests] = useState<Test[]>(() => getInitialState('publishedTests', []));
+  const [publishedTests, setPublishedTests] = useState<Test[]>([]);
   const [testHistory, setTestHistory] = useState<TestAttempt[]>(() => getInitialState('testHistory', []));
-  const [followRequests, setFollowRequests] = useState<FollowRequest[]>(() => getInitialState('followRequests', []));
-  const [notifications, setNotifications] = useState<AppNotification[]>(() => getInitialState('notifications', []));
-  const [isLoading, setIsLoading] = useState<boolean>(true); // Manages the initial auth check loading screen
+  const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [ignoredByStudents, setIgnoredByStudents] = useState<AppNotification[]>([]);
+  const [testAttempts, setTestAttempts] = useState<TestAttempt[]>([]);
+  const [analyticsTest, setAnalyticsTest] = useState<Test | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>('auth');
   const [activeTest, setActiveTest] = useState<Test | null>(null);
   const [studentInfo, setStudentInfo] = useState<Student | null>(null);
   const [latestTestResult, setLatestTestResult] = useState<TestAttempt | null>(null);
-  
-  // State for the raw Firebase user object. This is separate from our app's user profile.
   const [firebaseUser, setFirebaseUser] = useState<firebase.User | null>(null);
 
-  // --- DATA PERSISTENCE EFFECTS ---
   useEffect(() => { localStorage.setItem('userMetadata', JSON.stringify(userMetadata)); }, [userMetadata]);
   useEffect(() => { localStorage.setItem('allGeneratedMcqs', JSON.stringify(allGeneratedMcqs)); }, [allGeneratedMcqs]);
-  useEffect(() => { localStorage.setItem('publishedTests', JSON.stringify(publishedTests)); }, [publishedTests]);
   useEffect(() => { localStorage.setItem('testHistory', JSON.stringify(testHistory)); }, [testHistory]);
-  useEffect(() => { localStorage.setItem('followRequests', JSON.stringify(followRequests)); }, [followRequests]);
-  useEffect(() => { localStorage.setItem('notifications', JSON.stringify(notifications)); }, [notifications]);
-
-  // --- CORE AUTHENTICATION & NAVIGATION LOGIC ---
-
-  // EFFECT 1: Listens for Firebase auth changes.
-  // This effect runs ONLY ONCE on component mount. Its sole job is to determine
-  // if a user is logged into Firebase and update the `firebaseUser` state.
-  // Once it completes, it sets `isLoading` to false, removing the initial loading screen.
+  
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      setFirebaseUser(user);
-      setIsLoading(false); // Auth check is complete, hide the main spinner.
-    });
-    return () => unsubscribe(); // Cleanup listener on unmount
+    const unsubscribe = auth.onAuthStateChanged((user) => { setFirebaseUser(user); setIsLoading(false); });
+    return () => unsubscribe();
   }, []);
 
-  // EFFECT 2: Syncs Firebase auth state with application state.
-  // This effect runs whenever the `firebaseUser` changes (login/logout) or when
-  // our local `userMetadata` is updated (e.g., after registration or ID verification).
-  // It contains all the business logic for routing and setting the current user profile.
   useEffect(() => {
-    if (isLoading) return; // Do nothing until the initial auth check is done.
-
+    if (isLoading) return;
     if (firebaseUser && firebaseUser.emailVerified) {
       const metadata = userMetadata.find(u => u.id === firebaseUser.uid);
       if (metadata) {
         setCurrentUser(metadata);
-        if (metadata.role === Role.Faculty && !metadata.isIdVerified) {
-          setView('idVerification');
-        } else {
-          // If the view is still 'auth' or 'idVerification', move to the correct portal.
-          // This prevents getting stuck on the login page after a refresh.
-          if (view === 'auth' || view === 'idVerification') {
-             setView(metadata.role === Role.Faculty ? 'facultyPortal' : 'studentPortal');
-          }
-        }
+        if (metadata.role === Role.Faculty && !metadata.isIdVerified) setView('idVerification');
+        else if (view === 'auth' || view === 'idVerification') setView(metadata.role === Role.Faculty ? 'facultyPortal' : 'studentPortal');
       } else {
-        // This handles a rare edge case where a user is authenticated with Firebase
-        // but doesn't have a profile in our app's state (e.g., localStorage was cleared).
-        // Logging out is the safest action to prevent a broken state.
-        auth.signOut();
+        const fetchUserDoc = async () => {
+            const userDocSnap = await getDocs(query(collection(db, "users"), where("id", "==", firebaseUser.uid)));
+            if (!userDocSnap.empty) {
+                const userData = userDocSnap.docs[0].data() as AppUser;
+                setUserMetadata(prev => [...prev.filter(u => u.id !== userData.id), userData]);
+                setCurrentUser(userData);
+            } else { auth.signOut(); }
+        };
+        fetchUserDoc();
       }
-    } else {
-      // If there's no Firebase user or their email isn't verified, clear the
-      // application's current user and show the login page.
-      setCurrentUser(null);
-      setView('auth');
+    } else { setCurrentUser(null); setView('auth'); }
+  }, [firebaseUser, isLoading, userMetadata, view]);
+  
+  useEffect(() => {
+    if (!currentUser) { setFollowRequests([]); setNotifications([]); setPublishedTests([]); setIgnoredByStudents([]); setTestAttempts([]); return; }
+    let unsubscribes: (() => void)[] = [];
+    const onError = (err: Error) => {
+        console.error("Firestore listener error:", err);
+        alert("A database error occurred. You may need to create a Firestore index. Check the console (F12) for a link.");
+    };
+    if (analyticsTest && currentUser.role === Role.Faculty) {
+      const attemptsQuery = query(collection(db, "testAttempts"), where("testId", "==", analyticsTest.id));
+      unsubscribes.push(onSnapshot(attemptsQuery, (snapshot) => { setTestAttempts(snapshot.docs.map(doc => doc.data() as TestAttempt)); }, onError));
     }
-  }, [firebaseUser, userMetadata, isLoading, view]);
+    if (currentUser.role === Role.Faculty) {
+      const testsQuery = query(collection(db, "tests"), where("facultyId", "==", currentUser.id));
+      unsubscribes.push(onSnapshot(testsQuery, snapshot => setPublishedTests(snapshot.docs.map(doc => doc.data() as Test)), onError));
+      const frQuery = query(collection(db, "followRequests"), where("facultyId", "==", currentUser.id), where("status", "==", "pending"));
+      unsubscribes.push(onSnapshot(frQuery, snapshot => setFollowRequests(snapshot.docs.map(doc => doc.data() as FollowRequest)), onError));
+      const ignoredQuery = query(collection(db, "notifications"), where("facultyId", "==", currentUser.id), where("status", "==", "ignored"));
+      unsubscribes.push(onSnapshot(ignoredQuery, snapshot => setIgnoredByStudents(snapshot.docs.map(doc => doc.data() as AppNotification)), onError));
+    }
+    if (currentUser.role === Role.Student) {
+      const now = new Date().toISOString();
+      const notifQuery = query(collection(db, "notifications"), where("studentId", "==", currentUser.id), where("status", "==", "new"), where("test.endDate", ">=", now));
+      unsubscribes.push(onSnapshot(notifQuery, snapshot => {
+          setNotifications(snapshot.docs.map(doc => doc.data() as AppNotification));
+      }, onError));
+    }
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [currentUser, analyticsTest]);
 
-
-  // --- MEMOIZED DATA FOR PERFORMANCE ---
   const userGeneratedSets = useMemo(() => allGeneratedMcqs.filter(s => s.facultyId === currentUser?.id), [allGeneratedMcqs, currentUser]);
-  const userPublishedTests = useMemo(() => publishedTests.filter(t => t.facultyId === currentUser?.id), [publishedTests, currentUser]);
-  const userFollowRequests = useMemo(() => followRequests.filter(fr => fr.facultyId === currentUser?.id && fr.status === 'pending'), [followRequests, currentUser]);
-  const userNotifications = useMemo(() => notifications.filter(n => n.studentId === currentUser?.id), [notifications, currentUser]);
+  const userPublishedTests = useMemo(() => publishedTests, [publishedTests]);
+  const userFollowRequests = useMemo(() => followRequests, [followRequests]);
+  const userNotifications = useMemo(() => notifications, [notifications]);
   const studentTestHistory = useMemo(() => testHistory.filter(h => h.studentId === currentUser?.id), [testHistory, currentUser]);
 
-  // --- AUTHENTICATION HANDLER FUNCTIONS ---
   const handleLogin = async (email: string, pass: string): Promise<string | null> => {
     try {
       const userCredential = await auth.signInWithEmailAndPassword(email, pass);
-      if (!userCredential.user?.emailVerified) {
-        await auth.signOut();
-        return "Please verify your email before logging in.";
-      }
+      if (!userCredential.user?.emailVerified) { await auth.signOut(); return "Please verify your email."; }
       return null;
-    } catch (error: any) {
-      return "Invalid email or password.";
-    }
+    } catch (error: any) { return "Invalid email or password."; }
   };
-  
+
   const handleRegister = async (name: string, email: string, pass: string, role: Role): Promise<string | null> => {
-    if (userMetadata.some(u => u.email === email)) return "An account with this email already exists.";
     try {
       const userCredential = await auth.createUserWithEmailAndPassword(email, pass);
       const user = userCredential.user;
       if (!user) throw new Error("User creation failed.");
-
       let facultyId = '';
       if (role === Role.Faculty) {
         const sanitizedName = name.replace(/[^a-zA-Z0-9]/g, '');
-        const facultyCount = userMetadata.filter(u => u.role === Role.Faculty).length;
-        facultyId = `${sanitizedName}-faculty${101 + facultyCount}`;
+        const { size } = await getDocs(query(collection(db, "users"), where("role", "==", Role.Faculty)));
+        facultyId = `${sanitizedName}-faculty${101 + size}`;
       }
-      
-      await user.updateProfile({ displayName: facultyId || name });
-      
       const newUser: AppUser = { id: user.uid, name, email, role, facultyId, isIdVerified: false, following: [] };
+      await setDoc(doc(db, "users", user.uid), newUser);
       setUserMetadata(prev => [...prev, newUser]);
-      
       await user.sendEmailVerification();
       await auth.signOut();
-      
       return null;
-    } catch (error: any) {
-        return error.code === 'auth/email-already-in-use' ? "This email is already registered." : "Registration failed.";
-    }
+    } catch (error: any) { return error.code === 'auth/email-already-in-use' ? "This email is already registered." : "Registration failed."; }
   };
 
-  const handleCompleteIdVerification = () => {
-      if(!currentUser) return;
-      setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? { ...u, isIdVerified: true } : u));
-  };
-
-  const handleLogout = () => {
-    auth.signOut();
-  };
-
-  // --- MCQ & TEST MANAGEMENT HANDLERS ---
+  const handleCompleteIdVerification = () => { if(!currentUser) return; setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? { ...u, isIdVerified: true } : u)); };
+  const handleLogout = () => auth.signOut();
+  
   const handleGenerateMcqs = useCallback(async (formData: Omit<FormState, 'aiProvider'>) => {
     if (!currentUser) return;
-    const isGeneratorLoading = true;
     setView('generator');
     setError(null);
     setMcqs([]);
     try {
       const generatedMcqs = await generateMcqs(formData);
       setMcqs(generatedMcqs);
-      setAllGeneratedMcqs(prev => [...prev, {
-        id: `set-${Date.now()}`,
-        facultyId: currentUser.id,
-        timestamp: new Date(),
-        mcqs: generatedMcqs,
-      }]);
+      setAllGeneratedMcqs(prev => [...prev, { id: `set-${Date.now()}`, facultyId: currentUser.id, timestamp: new Date(), mcqs: generatedMcqs }]);
       setView('results');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-      setView('results'); // Show error on the results pane
+      setView('results');
     }
   }, [currentUser]);
   
-  const handlePublishTest = (mcqSetId: string, title: string, durationMinutes: number, testMode: 'default' | 'custom', customFormFields: CustomFormField[]) => {
+  const handlePublishTest = async (mcqSetId: string, title: string, durationMinutes: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customStudentFields: CustomFormField[]) => {
     if (!currentUser || currentUser.role !== Role.Faculty) return;
     const set = allGeneratedMcqs.find(s => s.id === mcqSetId);
-    if (set) {
-      const newTest: Test = { id: `test-${Date.now()}`, facultyId: currentUser.id, title, durationMinutes, questions: set.mcqs, testMode, customFormFields: testMode === 'custom' ? customFormFields : [] };
-      setPublishedTests(prev => [...prev, newTest]);
-      setAllGeneratedMcqs(prev => prev.filter(s => s.id !== mcqSetId));
-      const followers = userMetadata.filter(u => u.role === Role.Student && u.following.includes(currentUser.id));
-      const newNotifications: AppNotification[] = followers.map(follower => ({ id: `notif-${follower.id}-${newTest.id}`, studentId: follower.id, test: newTest, facultyName: currentUser.name, isRead: false }));
-      setNotifications(prev => [...prev, ...newNotifications]);
-      alert(`Test "${title}" published!`);
-    }
+    if (!set) { alert("Question set not found."); return; }
+    try {
+        const newTestRef = doc(collection(db, "tests"));
+        const newTest: Test = { id: newTestRef.id, facultyId: currentUser.id, title, durationMinutes, questions: set.mcqs, endDate, studentFieldsMode, customStudentFields };
+        await setDoc(newTestRef, newTest);
+        const followersQuery = query(collection(db, "users"), where("following", "array-contains", currentUser.id));
+        const followersSnapshot = await getDocs(followersQuery);
+        if (followersSnapshot.empty) {
+            alert(`Test "${title}" published successfully, but no followers were found to notify.`);
+        } else {
+            for (const userDoc of followersSnapshot.docs) {
+                const follower = userDoc.data() as AppUser;
+                const newNotifRef = doc(collection(db, "notifications"));
+                const newNotification: AppNotification = { id: newNotifRef.id, studentId: follower.id, studentEmail: follower.email, facultyId: currentUser.id, facultyName: currentUser.name, test: newTest, status: 'new' };
+                await setDoc(newNotifRef, newNotification);
+            }
+            alert(`Test "${title}" published and sent to ${followersSnapshot.size} follower(s)!`);
+        }
+        setAllGeneratedMcqs(prev => prev.filter(s => s.id !== mcqSetId));
+    } catch (error) { console.error("Error publishing test:", error); alert("An error occurred."); }
   };
-
-  const handleRevokeTest = (testId: string) => {
-    const test = publishedTests.find(t => t.id === testId);
-    if (test) {
-      const newSet: GeneratedMcqSet = { id: `set-revoked-${Date.now()}`, facultyId: test.facultyId, timestamp: new Date(), mcqs: test.questions };
+  
+  const handleRevokeTest = async (testId: string) => {
+    if (!window.confirm("Are you sure you want to revoke this test? This will delete it and all related notifications.")) return;
+    const testToRevoke = publishedTests.find(t => t.id === testId);
+    if (!testToRevoke) { alert("Test not found."); return; }
+    try {
+      await deleteDoc(doc(db, "tests", testId));
+      const notificationsQuery = query(collection(db, "notifications"), where("test.id", "==", testId));
+      const notificationSnapshot = await getDocs(notificationsQuery);
+      for (const notificationDoc of notificationSnapshot.docs) {
+        await deleteDoc(doc(db, "notifications", notificationDoc.id));
+      }
+      const newSet: GeneratedMcqSet = { id: `set-revoked-${Date.now()}`, facultyId: testToRevoke.facultyId, timestamp: new Date(), mcqs: testToRevoke.questions };
       setAllGeneratedMcqs(prev => [...prev, newSet]);
-      setPublishedTests(prev => prev.filter(t => t.id !== testId));
-      alert(`Test "${test.title}" has been revoked.`);
-    }
+      alert(`Test "${testToRevoke.title}" has been revoked successfully.`);
+    } catch (error) { console.error("Error revoking test:", error); alert("An error occurred."); }
   };
 
   const handleSaveManualSet = (manualMcqs: MCQ[]) => {
@@ -243,24 +218,33 @@ const App: React.FC = () => {
     setView('facultyPortal');
   };
 
-  // --- STUDENT TEST FLOW HANDLERS ---
-  const handleStartTest = (test: Test) => {
-    setActiveTest(test);
-    setView('studentLogin');
+  const handleStartTest = async (test: Test, notificationId: string) => {
+    try {
+        await deleteDoc(doc(db, "notifications", notificationId));
+        setActiveTest(test);
+        setView('studentLogin');
+    } catch (error) { console.error("Error removing notification:", error); }
   };
-  
+
+  const handleIgnoreTest = async (notificationId: string) => {
+    try {
+        await updateDoc(doc(db, "notifications", notificationId), { status: 'ignored', ignoredTimestamp: new Date().toISOString() });
+    } catch (error) { console.error("Error ignoring notification:", error); }
+  };
+
   const handleLoginAndStart = (student: Student) => {
     if (activeTest && currentUser) {
       setStudentInfo(student);
-      setNotifications(prev => prev.filter(n => !(n.test.id === activeTest.id && n.studentId === currentUser.id)));
       setView('test');
     }
   };
 
-  const handleTestFinish = (finalAnswers: (string | null)[]) => {
+  const handleTestFinish = async (finalAnswers: (string | null)[]) => {
     if (!activeTest || !studentInfo || !currentUser) return;
     const score = activeTest.questions.reduce((acc, q, index) => q.answer === finalAnswers[index] ? acc + 1 : acc, 0);
-    const attempt: TestAttempt = { id: `attempt-${Date.now()}`, testId: activeTest.id, studentId: currentUser.id, testTitle: activeTest.title, student: studentInfo, score, totalQuestions: activeTest.questions.length, answers: finalAnswers, date: new Date() };
+    const attemptRef = doc(collection(db, "testAttempts"));
+    const attempt: TestAttempt = { id: attemptRef.id, testId: activeTest.id, studentId: currentUser.id, testTitle: activeTest.title, student: studentInfo, score, totalQuestions: activeTest.questions.length, answers: finalAnswers, date: new Date() };
+    await setDoc(attemptRef, attempt);
     setTestHistory(prev => [...prev, attempt]);
     setLatestTestResult(attempt);
     setActiveTest(null);
@@ -268,109 +252,80 @@ const App: React.FC = () => {
     setView('testResults');
   };
 
-  // --- SOCIAL & NAVIGATION HANDLERS ---
-  const handleSendFollowRequest = (facultyId: string) => {
-    if (!currentUser) return;
-    const faculty = userMetadata.find(u => u.facultyId === facultyId && u.role === Role.Faculty);
-    if (!faculty) { alert("Faculty ID not found."); return; }
-    if (followRequests.some(fr => fr.studentId === currentUser.id && fr.facultyId === faculty.id)) { alert("Request already sent."); return; }
-    const newRequest: FollowRequest = { id: `fr-${currentUser.id}-${faculty.id}`, studentId: currentUser.id, studentEmail: currentUser.email, facultyId: faculty.id, status: 'pending' };
-    setFollowRequests(prev => [...prev, newRequest]);
-    alert("Follow request sent!");
+  const handleSendFollowRequest = async (facultyIdToFind: string) => {
+    if (!currentUser) { alert("You must be logged in."); return; }
+    try {
+      const q = query(collection(db, "users"), where("facultyId", "==", facultyIdToFind), where("role", "==", Role.Faculty));
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) { alert("Faculty ID not found."); return; }
+      const faculty = querySnapshot.docs[0].data() as AppUser;
+      const requestsRef = collection(db, "followRequests");
+      const existingReqQuery = query(requestsRef, where("studentId", "==", currentUser.id), where("facultyId", "==", faculty.id));
+      if (!(await getDocs(existingReqQuery)).empty) { alert("You have already sent a follow request."); return; }
+      const newRequestRef = doc(requestsRef);
+      const newRequest: FollowRequest = { id: newRequestRef.id, studentId: currentUser.id, studentEmail: currentUser.email, facultyId: faculty.id, status: 'pending' };
+      await setDoc(newRequestRef, newRequest);
+      alert("Follow request sent successfully!");
+    } catch (error) { console.error("Error sending follow request:", error); alert("An error occurred."); }
   };
 
-  const handleFollowRequestResponse = (requestId: string, status: 'accepted' | 'rejected') => {
+  const handleFollowRequestResponse = async (requestId: string, status: 'accepted' | 'rejected') => {
     const request = followRequests.find(fr => fr.id === requestId);
     if (!request) return;
-    setFollowRequests(prev => prev.map(fr => fr.id === requestId ? { ...fr, status } : fr));
-    if (status === 'accepted') {
-      setUserMetadata(prev => prev.map(u => u.id === request.studentId ? { ...u, following: [...u.following, request.facultyId] } : u));
-    }
+    try {
+        const requestRef = doc(db, "followRequests", requestId);
+        await updateDoc(requestRef, { status: status });
+        if (status === 'accepted') {
+            const studentRef = doc(db, "users", request.studentId);
+            await updateDoc(studentRef, { following: arrayUnion(request.facultyId) });
+        }
+        alert(`Request has been ${status}.`);
+    } catch (error) { console.error("Error responding to follow request:", error); alert("An error occurred."); }
   };
   
-  const handleNavigate = (targetView: View) => {
-    setError(null); // Clear errors when navigating away
-    setView(targetView);
-  }
-
-  // --- UTILITY HANDLERS ---
-  const handleExportPDF = (mcqsToExport: MCQ[]) => { 
-    alert(`PDF export for ${mcqsToExport.length} questions is not yet implemented.`);
-  };
-  const handleExportWord = (mcqsToExport: MCQ[]) => { 
-    alert(`Word export for ${mcqsToExport.length} questions is not yet implemented.`);
+  const handleNavigate = (targetView: View) => { setAnalyticsTest(null); setView(targetView); };
+  
+  const handleViewTestAnalytics = (test: Test) => {
+    setAnalyticsTest(test);
+    setView('testAnalytics');
   };
   
-  // --- MAIN RENDER FUNCTION ---
   const renderContent = () => {
-    // 1. Handle Initial Loading State: Show a spinner ONLY while checking auth status.
-    if (isLoading) {
-      return <div className="mt-20"><LoadingSpinner /></div>;
-    }
-
-    // 2. Handle Unauthenticated User: Always show the auth portal if not logged in.
-    if (!currentUser) {
-      return <AuthPortal onLogin={handleLogin} onRegister={handleRegister} />;
-    }
-
-    // 3. Handle Unverified Faculty: Force ID verification.
-    if (currentUser.role === Role.Faculty && !currentUser.isIdVerified) {
-      return <IdVerification onVerified={handleCompleteIdVerification} />;
-    }
-
-    // 4. Main View Router for authenticated and verified users.
+    if (isLoading) return <div className="mt-20"><LoadingSpinner /></div>;
+    if (!currentUser) return <AuthPortal onLogin={handleLogin} onRegister={handleRegister} />;
+    if (currentUser.role === Role.Faculty && !currentUser.isIdVerified) return <IdVerification onVerified={handleCompleteIdVerification} />;
+    
     switch (view) {
-      case 'facultyPortal':
-        return <FacultyPortal faculty={currentUser} generatedSets={userGeneratedSets} publishedTests={userPublishedTests} followRequests={userFollowRequests} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onFollowRequestResponse={handleFollowRequestResponse} />;
-      
+      case 'facultyPortal': return <FacultyPortal faculty={currentUser} generatedSets={userGeneratedSets} publishedTests={userPublishedTests} followRequests={userFollowRequests} ignoredNotifications={ignoredByStudents} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onFollowRequestResponse={handleFollowRequestResponse} onViewTestAnalytics={handleViewTestAnalytics} />;
+      case 'studentPortal': return <StudentPortal onNavigateToHistory={() => setView('testHistory')} onNavigateToNotifications={() => setView('notifications')} onSendFollowRequest={handleSendFollowRequest} />;
+      case 'notifications': return <Notifications notifications={userNotifications} onStartTest={handleStartTest} onIgnoreTest={handleIgnoreTest} onBack={() => setView('studentPortal')} />;
+      case 'testAnalytics': return analyticsTest ? <TestAnalytics test={analyticsTest} attempts={testAttempts} onBack={() => setView('facultyPortal')} /> : <ErrorMessage message="No test selected for analytics." />;
       case 'generator':
       case 'results':
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
             <McqGeneratorForm onGenerate={handleGenerateMcqs} isLoading={false} />
             <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg min-h-[400px] flex flex-col justify-center">
-              {error ? <ErrorMessage message={error} /> 
-                : <McqList mcqs={mcqs} />}
+              {error ? <ErrorMessage message={error} /> : <McqList mcqs={mcqs} />}
             </div>
           </div>
         );
-
-      case 'manualCreator':
-        return <ManualMcqCreator onSaveSet={handleSaveManualSet} onExportPDF={handleExportPDF} onExportWord={handleExportWord} />;
-
-      case 'studentPortal':
-        return <StudentPortal onNavigateToHistory={() => setView('testHistory')} onNavigateToNotifications={() => setView('notifications')} onSendFollowRequest={handleSendFollowRequest} />;
-      
-      case 'notifications':
-        return <Notifications notifications={userNotifications} onStartTest={handleStartTest} onBack={() => setView('studentPortal')} />;
-      
-      case 'studentLogin':
-        return activeTest ? <StudentLogin test={activeTest} onLogin={handleLoginAndStart} /> : <ErrorMessage message="No active test was selected. Please return to your notifications." />;
-      
-      case 'test':
-        return (activeTest && studentInfo) ? <TestPage test={activeTest} student={studentInfo} onFinish={handleTestFinish} /> : <ErrorMessage message="Test session is invalid. Please restart the test." />;
-      
-      case 'testResults':
-        return latestTestResult ? <TestResults result={latestTestResult} onNavigate={handleNavigate} /> : <ErrorMessage message="Could not find your latest test result." />;
-      
-      case 'testHistory':
-        return <TestHistory history={studentTestHistory} onNavigateBack={() => setView('studentPortal')} />;
-
-      // Fallback for any invalid view state
+      case 'manualCreator': return <ManualMcqCreator onSaveSet={handleSaveManualSet} onExportPDF={() => {}} onExportWord={() => {}} />;
+      case 'studentLogin': return activeTest ? <StudentLogin test={activeTest} onLogin={handleLoginAndStart} /> : <ErrorMessage message="No active test selected." />;
+      case 'test': return (activeTest && studentInfo) ? <TestPage test={activeTest} student={studentInfo} onFinish={handleTestFinish} /> : <ErrorMessage message="Test session is invalid." />;
+      case 'testResults': return latestTestResult ? <TestResults result={latestTestResult} onNavigate={handleNavigate} /> : <ErrorMessage message="Could not find your test result." />;
+      case 'testHistory': return <TestHistory history={studentTestHistory} onNavigateBack={() => setView('studentPortal')} />;
       default:
-        // This should rarely be reached with the new effects, but it's a safe fallback.
         const defaultView = currentUser.role === Role.Faculty ? 'facultyPortal' : 'studentPortal';
         setView(defaultView);
-        // Return a loading spinner while the state corrects itself on the next render.
         return <div className="mt-20"><LoadingSpinner /></div>;
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
-      <Header user={currentUser} activeView={view} onNavigate={handleNavigate} onLogout={handleLogout} notificationCount={userNotifications.filter(n => !n.isRead).length} />
+      <Header user={currentUser} activeView={view} onNavigate={handleNavigate} onLogout={handleLogout} notificationCount={userNotifications.length} />
       <main className="container mx-auto p-4 md:p-8">
-        {error && !['generator', 'results'].includes(view) && <div className="mb-4"><ErrorMessage message={error} /></div>}
         {renderContent()}
       </main>
     </div>

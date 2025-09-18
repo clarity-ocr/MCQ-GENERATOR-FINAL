@@ -9,14 +9,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^1.20.0",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@vitejs/plugin-react": "^5.0.0",
+    "autoprefixer": "^10.4.19",
+    "firebase": "^12.2.1",
+    "postcss": "^8.4.38",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "@google/genai": "^1.20.0",
-    "firebase": "^12.2.1"
+    "tailwindcss": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

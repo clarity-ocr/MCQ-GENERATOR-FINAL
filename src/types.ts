@@ -20,8 +20,8 @@ export enum AiProvider {
 }
 
 export enum Role {
-  Faculty = 'Faculty',
-  Student = 'Student',
+  Faculty = 'faculty', 
+  Student = 'student',
 }
 
 export interface AppUser {
@@ -31,7 +31,7 @@ export interface AppUser {
   role: Role;
   facultyId: string; // e.g., "Jeevasurya-faculty101"
   isIdVerified: boolean; // For staff ID card verification
-  following: string[]; // List of faculty IDs a student is following
+  following: string[]; // List of faculty AppUser IDs (UIDs) a student is following
 }
 
 export interface MCQ {
@@ -64,8 +64,9 @@ export interface Test {
   title: string;
   durationMinutes: number;
   questions: MCQ[];
-  testMode: 'default' | 'custom';
-  customFormFields: CustomFormField[];
+  studentFieldsMode: 'default' | 'custom';
+  customStudentFields: CustomFormField[];
+  endDate: string | null; // Stored as ISO string
 }
 
 export interface GeneratedMcqSet {
@@ -76,8 +77,10 @@ export interface GeneratedMcqSet {
 }
 
 export interface Student {
-  registrationNumber: string;
   name: string;
+  registrationNumber: string;
+  branch: string;
+  section: string;
   customData?: { [key: string]: string };
 }
 
@@ -86,7 +89,7 @@ export interface TestAttempt {
   testId: string;
   studentId: string;
   testTitle: string;
-  student: Student;
+  student: Student; // This now holds the full student details object
   score: number;
   totalQuestions: number;
   answers: (string | null)[];
@@ -101,10 +104,13 @@ export interface FollowRequest {
   status: 'pending' | 'accepted' | 'rejected';
 }
 
-export interface Notification {
+export interface AppNotification {
   id: string;
   studentId: string;
-  test: Test;
+  studentEmail: string; // For display on faculty dashboard
+  facultyId: string;
   facultyName: string;
-  isRead: boolean;
+  test: Test;
+  status: 'new' | 'ignored'; // Status for tracking student action
+  ignoredTimestamp?: string; // Stored as ISO string
 }
