@@ -1,11 +1,15 @@
+// in src/components/TestPage.tsx
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Test, Student } from '../types';
 
 interface TestPageProps {
   test: Test;
   student: Student;
-  onFinish: (answers: (string | null)[]) => void;
+  onFinish: (answers: (string | null)[], violations: number) => void;
 }
+
+const VIOLATION_LIMIT = 3;
 
 export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -15,27 +19,37 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
 
   const currentQuestion = test.questions[currentQuestionIndex];
   
-  const finishTest = useCallback(() => {
-    onFinish(answers);
-  }, [answers, onFinish]);
-
+  const finishTest = useCallback((finalAnswers: (string | null)[], finalViolations: number) => {
+    onFinish(finalAnswers, finalViolations);
+  }, [onFinish]);
 
   const handleViolation = useCallback(() => {
-    setViolations(prev => prev + 1);
-    setAnswers(Array(test.questions.length).fill(null)); // Reset all answers
-    alert('Violation detected! Leaving the test page, copying, or right-clicking is not allowed. Your answers have been reset.');
-  }, [test.questions.length]);
+    const newViolationCount = violations + 1;
+    setViolations(newViolationCount);
+    
+    if (newViolationCount >= VIOLATION_LIMIT) {
+      alert(`Violation limit of ${VIOLATION_LIMIT} reached. Your test will be submitted as is.`);
+      // Immediately finish the test with current answers and violation count
+      finishTest(answers, newViolationCount);
+    } else {
+      setAnswers(Array(test.questions.length).fill(null)); // Reset all answers
+      setCurrentQuestionIndex(0); // Move to the first question
+      alert(`Violation ${newViolationCount}/${VIOLATION_LIMIT} detected!\n\nLeaving the page, copying, or right-clicking is not allowed. Your answers have been reset, and you have been moved to the first question.`);
+    }
+  }, [violations, test.questions.length, answers, finishTest]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.hidden) handleViolation();
+      if (document.hidden) {
+        handleViolation();
+      }
     };
     const preventDefault = (e: Event) => e.preventDefault();
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    document.body.addEventListener('contextmenu', preventDefault);
-    document.body.addEventListener('copy', preventDefault);
-    document.body.addEventListener('paste', preventDefault);
+    document.addEventListener('contextmenu', preventDefault);
+    document.addEventListener('copy', preventDefault);
+    document.addEventListener('paste', preventDefault);
     document.body.style.userSelect = 'none';
 
     return () => {
@@ -50,14 +64,14 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
   useEffect(() => {
     if (timeLeft <= 0) {
       alert("Time's up! Submitting your test.");
-      finishTest();
+      finishTest(answers, violations);
       return;
     }
     const timer = setInterval(() => {
       setTimeLeft(prev => prev - 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [timeLeft, finishTest]);
+  }, [timeLeft, finishTest, answers, violations]);
 
   const handleAnswerSelect = (option: string) => {
     setAnswers(prev => {
@@ -85,7 +99,6 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }, [timeLeft]);
 
-
   return (
     <div className="bg-white dark:bg-gray-800 p-6 md:p-8 rounded-2xl shadow-lg w-full mx-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 dark:border-gray-700 pb-4 mb-6">
@@ -99,7 +112,7 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
                     {formattedTime}
                 </div>
                  <div className="text-sm text-red-600 dark:text-red-400 font-medium">
-                    Violations: {violations}
+                    Violations: {violations} / {VIOLATION_LIMIT}
                 </div>
             </div>
         </div>
@@ -135,7 +148,7 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
             </button>
             {currentQuestionIndex === test.questions.length - 1 ? (
                  <button
-                  onClick={finishTest}
+                  onClick={() => finishTest(answers, violations)}
                   className="py-2 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 dark:focus:ring-offset-gray-800 transition-colors"
                 >
                   Submit Test

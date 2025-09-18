@@ -1,7 +1,13 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+
+// --- Firebase Service Imports ---
 import { db, auth } from './services/firebase';
-import { collection, query, where, getDocs, doc, setDoc, updateDoc, arrayUnion, onSnapshot, deleteDoc } from "firebase/firestore"; 
+import { 
+    collection, query, where, getDocs, doc, setDoc, updateDoc, arrayUnion, onSnapshot, deleteDoc 
+} from "firebase/firestore"; 
 import type firebase from 'firebase/compat/app';
+
+// --- Component Imports ---
 import { Header } from './components/Header';
 import { McqGeneratorForm } from './components/McqGeneratorForm';
 import { McqList } from './components/McqList';
@@ -18,10 +24,15 @@ import { AuthPortal } from './components/AuthPortal';
 import { IdVerification } from './components/IdVerification';
 import { Notifications } from './components/Notifications';
 import { TestAnalytics } from './components/TestAnalytics';
+
+// --- Type Imports ---
 import { Role } from './types';
 import type { FormState, MCQ, Test, GeneratedMcqSet, Student, TestAttempt, FollowRequest, AppNotification, AppUser, CustomFormField } from './types';
+
+// --- Service Imports ---
 import { generateMcqs } from './services/geminiService';
 
+// --- Global Declarations ---
 declare const jspdf: any;
 declare const docx: any;
 type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics';
@@ -37,6 +48,7 @@ const getInitialState = <T,>(key: string, defaultValue: T): T => {
 };
 
 const App: React.FC = () => {
+  // --- STATE MANAGEMENT ---
   const [userMetadata, setUserMetadata] = useState<AppUser[]>(() => getInitialState('userMetadata', []));
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
@@ -56,10 +68,12 @@ const App: React.FC = () => {
   const [latestTestResult, setLatestTestResult] = useState<TestAttempt | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<firebase.User | null>(null);
 
+  // --- LOCALSTORAGE PERSISTENCE ---
   useEffect(() => { localStorage.setItem('userMetadata', JSON.stringify(userMetadata)); }, [userMetadata]);
   useEffect(() => { localStorage.setItem('allGeneratedMcqs', JSON.stringify(allGeneratedMcqs)); }, [allGeneratedMcqs]);
   useEffect(() => { localStorage.setItem('testHistory', JSON.stringify(testHistory)); }, [testHistory]);
   
+  // --- CORE AUTH & DATA LOADING ---
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => { setFirebaseUser(user); setIsLoading(false); });
     return () => unsubscribe();
@@ -87,13 +101,11 @@ const App: React.FC = () => {
     } else { setCurrentUser(null); setView('auth'); }
   }, [firebaseUser, isLoading, userMetadata, view]);
   
+  // --- REAL-TIME FIRESTORE LISTENERS ---
   useEffect(() => {
     if (!currentUser) { setFollowRequests([]); setNotifications([]); setPublishedTests([]); setIgnoredByStudents([]); setTestAttempts([]); return; }
     let unsubscribes: (() => void)[] = [];
-    const onError = (err: Error) => {
-        console.error("Firestore listener error:", err);
-        alert("A database error occurred. You may need to create a Firestore index. Check the console (F12) for a link.");
-    };
+    const onError = (err: Error) => { console.error("Firestore listener error:", err); };
     if (analyticsTest && currentUser.role === Role.Faculty) {
       const attemptsQuery = query(collection(db, "testAttempts"), where("testId", "==", analyticsTest.id));
       unsubscribes.push(onSnapshot(attemptsQuery, (snapshot) => { setTestAttempts(snapshot.docs.map(doc => doc.data() as TestAttempt)); }, onError));
@@ -116,12 +128,14 @@ const App: React.FC = () => {
     return () => unsubscribes.forEach(unsub => unsub());
   }, [currentUser, analyticsTest]);
 
+  // --- MEMOIZED DATA ---
   const userGeneratedSets = useMemo(() => allGeneratedMcqs.filter(s => s.facultyId === currentUser?.id), [allGeneratedMcqs, currentUser]);
   const userPublishedTests = useMemo(() => publishedTests, [publishedTests]);
   const userFollowRequests = useMemo(() => followRequests, [followRequests]);
   const userNotifications = useMemo(() => notifications, [notifications]);
   const studentTestHistory = useMemo(() => testHistory.filter(h => h.studentId === currentUser?.id), [testHistory, currentUser]);
 
+  // --- AUTH HANDLERS ---
   const handleLogin = async (email: string, pass: string): Promise<string | null> => {
     try {
       const userCredential = await auth.signInWithEmailAndPassword(email, pass);
@@ -153,11 +167,10 @@ const App: React.FC = () => {
   const handleCompleteIdVerification = () => { if(!currentUser) return; setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? { ...u, isIdVerified: true } : u)); };
   const handleLogout = () => auth.signOut();
   
+  // --- MCQ & TEST HANDLERS ---
   const handleGenerateMcqs = useCallback(async (formData: Omit<FormState, 'aiProvider'>) => {
     if (!currentUser) return;
-    setView('generator');
-    setError(null);
-    setMcqs([]);
+    setView('generator'); setError(null); setMcqs([]);
     try {
       const generatedMcqs = await generateMcqs(formData);
       setMcqs(generatedMcqs);
@@ -175,7 +188,7 @@ const App: React.FC = () => {
     if (!set) { alert("Question set not found."); return; }
     try {
         const newTestRef = doc(collection(db, "tests"));
-        const newTest: Test = { id: newTestRef.id, facultyId: currentUser.id, title, durationMinutes, questions: set.mcqs, endDate, studentFieldsMode, customStudentFields };
+        const newTest: Test = { id: newTestRef.id, facultyId: currentUser.id, title, durationMinutes, questions: set.mcqs, endDate, studentFieldsMode, customStudentFields, disqualifiedStudents: [] };
         await setDoc(newTestRef, newTest);
         const followersQuery = query(collection(db, "users"), where("following", "array-contains", currentUser.id));
         const followersSnapshot = await getDocs(followersQuery);
@@ -218,40 +231,57 @@ const App: React.FC = () => {
     setView('facultyPortal');
   };
 
+  // --- STUDENT FLOW HANDLERS ---
   const handleStartTest = async (test: Test, notificationId: string) => {
+    if (!currentUser) return;
+    if (test.disqualifiedStudents?.includes(currentUser.id)) {
+        alert("You have been disqualified from re-taking this test due to excessive violations. Please contact your faculty member.");
+        return;
+    }
     try {
         await deleteDoc(doc(db, "notifications", notificationId));
         setActiveTest(test);
         setView('studentLogin');
     } catch (error) { console.error("Error removing notification:", error); }
   };
-
+  
   const handleIgnoreTest = async (notificationId: string) => {
     try {
-        await updateDoc(doc(db, "notifications", notificationId), { status: 'ignored', ignoredTimestamp: new Date().toISOString() });
+        await updateDoc(doc(db, "notifications", notificationId), { 
+            status: 'ignored',
+            ignoredTimestamp: new Date().toISOString()
+        });
     } catch (error) { console.error("Error ignoring notification:", error); }
   };
 
   const handleLoginAndStart = (student: Student) => {
-    if (activeTest && currentUser) {
-      setStudentInfo(student);
-      setView('test');
+    if (activeTest && currentUser) { 
+      setStudentInfo(student); 
+      setView('test'); 
     }
   };
 
-  const handleTestFinish = async (finalAnswers: (string | null)[]) => {
+  const handleTestFinish = async (finalAnswers: (string | null)[], violations: number) => {
     if (!activeTest || !studentInfo || !currentUser) return;
     const score = activeTest.questions.reduce((acc, q, index) => q.answer === finalAnswers[index] ? acc + 1 : acc, 0);
     const attemptRef = doc(collection(db, "testAttempts"));
     const attempt: TestAttempt = { id: attemptRef.id, testId: activeTest.id, studentId: currentUser.id, testTitle: activeTest.title, student: studentInfo, score, totalQuestions: activeTest.questions.length, answers: finalAnswers, date: new Date() };
     await setDoc(attemptRef, attempt);
-    setTestHistory(prev => [...prev, attempt]);
+
+    if (violations >= 3) {
+      const testRef = doc(db, "tests", activeTest.id);
+      await updateDoc(testRef, {
+        disqualifiedStudents: arrayUnion(currentUser.id)
+      });
+    }
+
     setLatestTestResult(attempt);
-    setActiveTest(null);
+    setActiveTest(null); 
     setStudentInfo(null);
     setView('testResults');
   };
 
+  // --- SOCIAL HANDLERS ---
   const handleSendFollowRequest = async (facultyIdToFind: string) => {
     if (!currentUser) { alert("You must be logged in."); return; }
     try {
@@ -290,6 +320,7 @@ const App: React.FC = () => {
     setView('testAnalytics');
   };
   
+  // --- MAIN RENDER FUNCTION ---
   const renderContent = () => {
     if (isLoading) return <div className="mt-20"><LoadingSpinner /></div>;
     if (!currentUser) return <AuthPortal onLogin={handleLogin} onRegister={handleRegister} />;

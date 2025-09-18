@@ -67,6 +67,7 @@ export interface Test {
   studentFieldsMode: 'default' | 'custom';
   customStudentFields: CustomFormField[];
   endDate: string | null; // Stored as ISO string
+  disqualifiedStudents?: string[]; 
 }
 
 export interface GeneratedMcqSet {
