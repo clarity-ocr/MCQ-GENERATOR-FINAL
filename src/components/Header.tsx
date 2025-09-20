@@ -26,6 +26,9 @@ const NavButton: React.FC<{ active: boolean; onClick: () => void; children: Reac
 
 
 export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate, onLogout, notificationCount }) => {
+  if (activeView === 'test') {
+    return null;
+  }
   const isFacultyView = ['facultyPortal', 'generator', 'results', 'manualCreator'].includes(activeView);
   const isStudentView = ['studentPortal', 'studentLogin', 'test', 'testResults', 'testHistory', 'notifications'].includes(activeView);
   

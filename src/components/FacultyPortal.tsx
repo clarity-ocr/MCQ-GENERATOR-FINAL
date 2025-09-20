@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { GeneratedMcqSet, Test, FollowRequest, AppUser, CustomFormField, AppNotification } from '../types';
+import type { GeneratedMcqSet, Test, FollowRequest, AppUser, CustomFormField, AppNotification, ViolationAlert } from '../types';
 import { McqDisplay } from './McqDisplay';
 
 // --- Sub-component: PublishModal ---
@@ -139,13 +139,15 @@ interface FacultyPortalProps {
   publishedTests: Test[];
   followRequests: FollowRequest[];
   ignoredNotifications: AppNotification[];
+  violationAlerts: ViolationAlert[];
   onPublishTest: (mcqSetId: string, title: string, durationMinutes: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customFormFields: CustomFormField[]) => void;
   onRevokeTest: (testId: string) => void;
   onFollowRequestResponse: (requestId: string, status: 'accepted' | 'rejected') => void;
   onViewTestAnalytics: (test: Test) => void;
+  onGrantReattempt: (alertId: string) => void;
 }
 
-export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generatedSets, publishedTests, followRequests, ignoredNotifications, onPublishTest, onRevokeTest, onFollowRequestResponse, onViewTestAnalytics }) => {
+export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generatedSets, publishedTests, followRequests, ignoredNotifications, violationAlerts, onPublishTest, onRevokeTest, onFollowRequestResponse, onViewTestAnalytics, onGrantReattempt }) => {
   return (
     <div className="space-y-8">
       <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
@@ -210,29 +212,34 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generated
                     )}
                 </div>
             </div>
-
             <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
                 <h3 className="text-2xl font-bold mb-4">Ignored Test Alerts</h3>
                 <div className="space-y-3">
                     {ignoredNotifications.length > 0 ? (
-                       [...ignoredNotifications]
-                        .sort((a, b) => new Date(b.ignoredTimestamp!).getTime() - new Date(a.ignoredTimestamp!).getTime())
-                        .map(notif => (
+                       [...ignoredNotifications].sort((a, b) => new Date(b.actionTimestamp!).getTime() - new Date(a.actionTimestamp!).getTime()).map(notif => (
                             <div key={notif.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-yellow-50 dark:bg-yellow-900/30">
                                 <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{notif.studentEmail}</p>
                                 <p className="text-xs text-gray-600 dark:text-gray-400">ignored your test: <span className="font-medium">{notif.test.title}</span></p>
-                                {notif.ignoredTimestamp && (
-                                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-                                    {new Date(notif.ignoredTimestamp).toLocaleString()}
-                                  </p>
-                                )}
+                                {notif.actionTimestamp && (<p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{new Date(notif.actionTimestamp).toLocaleString()}</p>)}
                             </div>
                         ))
-                    ) : (
-                        <p className="text-sm text-gray-500 dark:text-gray-400">No ignored test alerts.</p>
-                    )}
+                    ) : (<p className="text-sm text-gray-500 dark:text-gray-400">No ignored test alerts.</p>)}
                 </div>
             </div>
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
+              <h3 className="text-2xl font-bold mb-4">Violation Alerts</h3>
+              <div className="space-y-3">
+                  {violationAlerts.length > 0 ? (
+                      violationAlerts.map(alert => (
+                          <div key={alert.id} className="p-3 border border-red-300 dark:border-red-700 rounded-lg bg-red-50 dark:bg-red-900/30">
+                              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{alert.studentEmail}</p>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">was disqualified from <span className="font-medium">{alert.testTitle}</span>.</p>
+                              <button onClick={() => onGrantReattempt(alert.id)} className="w-full mt-2 text-xs py-1 px-2 bg-blue-600 text-white rounded hover:bg-blue-700">Grant Re-attempt Permission</button>
+                          </div>
+                      ))
+                  ) : (<p className="text-sm text-gray-500 dark:text-gray-400">No new violation alerts.</p>)}
+              </div>
+          </div>
         </div>
       </div>
     </div>

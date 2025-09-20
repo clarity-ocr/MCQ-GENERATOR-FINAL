@@ -90,11 +90,12 @@ export interface TestAttempt {
   testId: string;
   studentId: string;
   testTitle: string;
-  student: Student; // This now holds the full student details object
+  student: Student;
   score: number;
   totalQuestions: number;
   answers: (string | null)[];
   date: Date;
+  violations: number;
 }
 
 export interface FollowRequest {
@@ -108,10 +109,21 @@ export interface FollowRequest {
 export interface AppNotification {
   id: string;
   studentId: string;
-  studentEmail: string; // For display on faculty dashboard
+  studentEmail: string;
   facultyId: string;
   facultyName: string;
   test: Test;
-  status: 'new' | 'ignored'; // Status for tracking student action
-  ignoredTimestamp?: string; // Stored as ISO string
+  status: 'new' | 'ignored';
+  ignoredTimestamp?: string;
+}
+
+export interface ViolationAlert {
+    id: string;
+    studentId: string;
+    studentEmail: string;
+    facultyId: string;
+    testId: string;
+    testTitle: string;
+    timestamp: string;
+    status: 'pending' | 'resolved';
 }
