@@ -29,9 +29,33 @@ export interface AppUser {
   name: string;
   email: string;
   role: Role;
-  facultyId: string; // e.g., "Jeevasurya-faculty101"
-  isIdVerified: boolean; // For staff ID card verification
-  following: string[]; // List of faculty AppUser IDs (UIDs) a student is following
+  collegeName: string; 
+  country: string; // <<< NEW FIELD
+  state: string; // <<< NEW FIELD
+  district: string; // <<< NEW FIELD
+  facultyId: string;
+  isIdVerified: boolean;
+  following: string[];
+  facultyConnections?: string[];
+}
+
+// ** NEW TYPE for faculty-to-faculty connection requests **
+export interface ConnectionRequest {
+  id: string;
+  fromFacultyId: string; // The AppUser ID of the sender
+  fromFacultyName: string;
+  fromFacultyCollege: string;
+  toFacultyId: string; // The AppUser ID of the receiver
+  status: 'pending' | 'accepted' | 'rejected';
+}
+export interface ChatMessage {
+  id: string;
+  chatId: string; // Combination of the two faculty UIDs
+  senderId: string;
+  senderName: string;
+  text?: string; // Text is optional for image messages
+  imageUrl?: string; // URL for the uploaded image
+  timestamp: string; // Stored as ISO string
 }
 
 export interface MCQ {

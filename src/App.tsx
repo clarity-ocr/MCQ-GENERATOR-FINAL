@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { db, auth } from './services/firebase';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, arrayUnion, onSnapshot, deleteDoc, arrayRemove } from "firebase/firestore"; 
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import type firebase from 'firebase/compat/app';
 import { Header } from './components/Header';
 import { McqGeneratorForm } from './components/McqGeneratorForm';
@@ -20,13 +21,16 @@ import { Notifications } from './components/Notifications';
 import { TestAnalytics } from './components/TestAnalytics';
 import { FollowingPage } from './components/FollowingPage';
 import { ProfilePage } from './components/ProfilePage';
+import { FollowersPage } from './components/FollowersPage';
+import { ConnectPage } from './components/ConnectPage';
+import { EmailVerification } from './components/EmailVerification';
 import { Role } from './types';
-import type { FormState, MCQ, Test, GeneratedMcqSet, Student, TestAttempt, FollowRequest, AppNotification, AppUser, CustomFormField, ViolationAlert } from './types';
+import type { FormState, MCQ, Test, GeneratedMcqSet, Student, TestAttempt, FollowRequest, AppNotification, AppUser, CustomFormField, ViolationAlert, ConnectionRequest } from './types';
 import { generateMcqs } from './services/geminiService';
 
 declare const jspdf: any;
 declare const docx: any;
-type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics' | 'following' | 'profile';
+type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics' | 'following' | 'profile' | 'followers' | 'connect' | 'emailVerification';
 
 const getInitialState = <T,>(key: string, defaultValue: T): T => {
     try {
@@ -41,6 +45,7 @@ const getInitialState = <T,>(key: string, defaultValue: T): T => {
 const App: React.FC = () => {
   const [userMetadata, setUserMetadata] = useState<AppUser[]>(() => getInitialState('userMetadata', []));
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [verificationEmail, setVerificationEmail] = useState('');
   const [mcqs, setMcqs] = useState<MCQ[]>([]);
   const [allGeneratedMcqs, setAllGeneratedMcqs] = useState<GeneratedMcqSet[]>(() => getInitialState('allGeneratedMcqs', []));
   const [publishedTests, setPublishedTests] = useState<Test[]>([]);
@@ -50,6 +55,9 @@ const App: React.FC = () => {
   const [ignoredByStudents, setIgnoredByStudents] = useState<AppNotification[]>([]);
   const [violationAlerts, setViolationAlerts] = useState<ViolationAlert[]>([]);
   const [followingList, setFollowingList] = useState<AppUser[]>([]);
+  const [followers, setFollowers] = useState<AppUser[]>([]);
+  const [connectedFaculty, setConnectedFaculty] = useState<AppUser[]>([]);
+  const [connectionRequests, setConnectionRequests] = useState<ConnectionRequest[]>([]);
   const [testAttempts, setTestAttempts] = useState<TestAttempt[]>([]);
   const [analyticsTest, setAnalyticsTest] = useState<Test | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -76,7 +84,7 @@ const App: React.FC = () => {
       if (metadata) {
         setCurrentUser(metadata);
         if (metadata.role === Role.Faculty && !metadata.isIdVerified) setView('idVerification');
-        else if (view === 'auth' || view === 'idVerification') setView(metadata.role === Role.Faculty ? 'facultyPortal' : 'studentPortal');
+        else if (view === 'auth' || view === 'idVerification' || view === 'emailVerification') setView(metadata.role === Role.Faculty ? 'facultyPortal' : 'studentPortal');
       } else {
         const fetchUserDoc = async () => {
             const userDocSnap = await getDocs(query(collection(db, "users"), where("id", "==", firebaseUser.uid)));
@@ -88,21 +96,23 @@ const App: React.FC = () => {
         };
         fetchUserDoc();
       }
-    } else { setCurrentUser(null); setView('auth'); }
+    } else if (view !== 'emailVerification') { 
+        setCurrentUser(null); 
+        setView('auth'); 
+    }
   }, [firebaseUser, isLoading, userMetadata, view]);
   
   useEffect(() => {
-    if (!currentUser || currentUser.role !== Role.Faculty) {
-      setPublishedTests([]); setFollowRequests([]); setIgnoredByStudents([]); setViolationAlerts([]);
-      return;
-    }
+    if (!currentUser) { setFollowRequests([]); setNotifications([]); setPublishedTests([]); setIgnoredByStudents([]); setTestAttempts([]); setViolationAlerts([]); setFollowers([]); setConnectedFaculty([]); setConnectionRequests([]); return; }
+    let unsubscribes: (() => void)[] = [];
     const onError = (err: Error) => { console.error("Firestore listener error:", err); };
-    const unsubscribes = [
-      onSnapshot(query(collection(db, "tests"), where("facultyId", "==", currentUser.id)), snapshot => setPublishedTests(snapshot.docs.map(doc => doc.data() as Test)), onError),
-      onSnapshot(query(collection(db, "followRequests"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")), snapshot => setFollowRequests(snapshot.docs.map(doc => doc.data() as FollowRequest)), onError),
-      onSnapshot(query(collection(db, "notifications"), where("facultyId", "==", currentUser.id), where("status", "==", "ignored")), snapshot => setIgnoredByStudents(snapshot.docs.map(doc => doc.data() as AppNotification)), onError),
-      onSnapshot(query(collection(db, "violationAlerts"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")), snapshot => setViolationAlerts(snapshot.docs.map(doc => doc.data() as ViolationAlert)), onError)
-    ];
+    if (currentUser.role === Role.Faculty) {
+      unsubscribes.push(onSnapshot(query(collection(db, "tests"), where("facultyId", "==", currentUser.id)), snapshot => setPublishedTests(snapshot.docs.map(doc => doc.data() as Test)), onError));
+      unsubscribes.push(onSnapshot(query(collection(db, "followRequests"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")), snapshot => setFollowRequests(snapshot.docs.map(doc => doc.data() as FollowRequest)), onError));
+      unsubscribes.push(onSnapshot(query(collection(db, "notifications"), where("facultyId", "==", currentUser.id), where("status", "==", "ignored")), snapshot => setIgnoredByStudents(snapshot.docs.map(doc => doc.data() as AppNotification)), onError));
+      unsubscribes.push(onSnapshot(query(collection(db, "violationAlerts"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")), snapshot => setViolationAlerts(snapshot.docs.map(doc => doc.data() as ViolationAlert)), onError));
+      unsubscribes.push(onSnapshot(query(collection(db, "connectionRequests"), where("toFacultyId", "==", currentUser.id), where("status", "==", "pending")), snapshot => { setConnectionRequests(snapshot.docs.map(doc => doc.data() as ConnectionRequest)); }, onError));
+    }
     return () => unsubscribes.forEach(unsub => unsub());
   }, [currentUser]);
 
@@ -119,7 +129,7 @@ const App: React.FC = () => {
     } catch (error: any) { return "Invalid email or password."; }
   };
 
-  const handleRegister = async (name: string, email: string, pass: string, role: Role): Promise<string | null> => {
+  const handleRegister = async (name: string, email: string, pass: string, role: Role, collegeName: string, country: string, state: string, district: string): Promise<{ success: boolean; error?: string; email?: string }> => {
     try {
       const userCredential = await auth.createUserWithEmailAndPassword(email, pass);
       const user = userCredential.user;
@@ -130,15 +140,40 @@ const App: React.FC = () => {
         const { size } = await getDocs(query(collection(db, "users"), where("role", "==", Role.Faculty)));
         facultyId = `${sanitizedName}-faculty${101 + size}`;
       }
-      const newUser: AppUser = { id: user.uid, name, email, role, facultyId, isIdVerified: false, following: [] };
+      const newUser: AppUser = { id: user.uid, name, email, role, facultyId, collegeName, country, state, district, isIdVerified: false, following: [], facultyConnections: [] };
       await setDoc(doc(db, "users", user.uid), newUser);
       setUserMetadata(prev => [...prev, newUser]);
       await user.sendEmailVerification();
       await auth.signOut();
-      return null;
-    } catch (error: any) { return error.code === 'auth/email-already-in-use' ? "This email is already registered." : "Registration failed."; }
+      return { success: true, email: user.email! };
+    } catch (error: any) { 
+      const message = error.code === 'auth/email-already-in-use' ? "This email is already registered." : "Registration failed.";
+      return { success: false, error: message };
+    }
   };
 
+  const handleGoogleSignIn = async (): Promise<{ error?: string }> => {
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      const userDoc = await getDocs(query(collection(db, "users"), where("id", "==", user.uid)));
+      if (userDoc.empty) {
+        const newUser: AppUser = { 
+          id: user.uid, name: user.displayName || 'New User', email: user.email!, 
+          role: Role.Student, collegeName: 'N/A', country: 'N/A', state: 'N/A', district: 'N/A', 
+          facultyId: '', isIdVerified: true, following: [], facultyConnections: [] 
+        };
+        await setDoc(doc(db, "users", user.uid), newUser);
+        setUserMetadata(prev => [...prev, newUser]);
+      }
+      return {};
+    } catch (error: any) {
+      console.error("Google Sign-In Error:", error);
+      return { error: "Failed to sign in with Google. Please try again." };
+    }
+  };
+  
   const handleCompleteIdVerification = () => { if(!currentUser) return; setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? { ...u, isIdVerified: true } : u)); };
   const handleLogout = () => { auth.signOut(); setView('auth'); };
   
@@ -273,10 +308,20 @@ const App: React.FC = () => {
       const faculty = querySnapshot.docs[0].data() as AppUser;
       const requestsRef = collection(db, "followRequests");
       const existingReqQuery = query(requestsRef, where("studentId", "==", currentUser.id), where("facultyId", "==", faculty.id));
-      if (!(await getDocs(existingReqQuery)).empty) { alert("You have already sent a follow request."); return; }
-      const newRequestRef = doc(requestsRef);
-      const newRequest: FollowRequest = { id: newRequestRef.id, studentId: currentUser.id, studentEmail: currentUser.email, facultyId: faculty.id, status: 'pending' };
-      await setDoc(newRequestRef, newRequest);
+      const existingReqSnapshot = await getDocs(existingReqQuery);
+
+      if (existingReqSnapshot.empty) {
+        const newRequestRef = doc(requestsRef);
+        const newRequest: FollowRequest = { id: newRequestRef.id, studentId: currentUser.id, studentEmail: currentUser.email, facultyId: faculty.id, status: 'pending' };
+        await setDoc(newRequestRef, newRequest);
+      } else {
+        const existingRequestDoc = existingReqSnapshot.docs[0];
+        if (existingRequestDoc.data().status === 'pending') {
+          alert("You have already sent a follow request to this faculty member.");
+          return;
+        }
+        await updateDoc(doc(db, "followRequests", existingRequestDoc.id), { status: 'pending' });
+      }
       alert("Follow request sent successfully!");
     } catch (error) { console.error("Error sending follow request:", error); alert("An error occurred."); }
   };
@@ -300,7 +345,9 @@ const App: React.FC = () => {
     try {
         const studentRef = doc(db, "users", currentUser.id);
         await updateDoc(studentRef, { following: arrayRemove(facultyId) });
-        setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? { ...u, following: u.following.filter(id => id !== facultyId) } : u));
+        const updatedUser = { ...currentUser, following: currentUser.following.filter(id => id !== facultyId) };
+        setCurrentUser(updatedUser);
+        setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
         setFollowingList(prev => prev.filter(f => f.id !== facultyId));
         alert("You have unfollowed the faculty member.");
     } catch (error) {
@@ -308,10 +355,43 @@ const App: React.FC = () => {
         alert("An error occurred while trying to unfollow.");
     }
   };
+
+  const handleSendConnectionRequest = async (facultyId: string) => {
+    if (!currentUser) return;
+    try {
+        const q = query(collection(db, "users"), where("facultyId", "==", facultyId), where("role", "==", Role.Faculty));
+        const snapshot = await getDocs(q);
+        if (snapshot.empty) { alert("Faculty ID not found."); return; }
+        const toFaculty = snapshot.docs[0].data() as AppUser;
+        if (toFaculty.id === currentUser.id) { alert("You cannot connect with yourself."); return; }
+        const newRequestRef = doc(collection(db, "connectionRequests"));
+        const newRequest: ConnectionRequest = { id: newRequestRef.id, fromFacultyId: currentUser.id, fromFacultyName: currentUser.name, fromFacultyCollege: currentUser.collegeName, toFacultyId: toFaculty.id, status: 'pending' };
+        await setDoc(newRequestRef, newRequest);
+        alert("Connection request sent.");
+    } catch (error) { console.error("Error sending connection request:", error); }
+  };
+  
+  const handleAcceptConnection = async (requestId: string) => {
+    const request = connectionRequests.find(r => r.id === requestId);
+    if (!request || !currentUser) return;
+    try {
+        await updateDoc(doc(db, "connectionRequests", requestId), { status: 'accepted' });
+        await updateDoc(doc(db, "users", request.fromFacultyId), { facultyConnections: arrayUnion(request.toFacultyId) });
+        await updateDoc(doc(db, "users", request.toFacultyId), { facultyConnections: arrayUnion(request.fromFacultyId) });
+        const updatedUser = { ...currentUser, facultyConnections: [...(currentUser.facultyConnections || []), request.fromFacultyId]};
+        setCurrentUser(updatedUser);
+        setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? updatedUser : u));
+    } catch (error) { console.error("Error accepting connection:", error); }
+  };
+  
+  const handleRejectConnection = async (requestId: string) => {
+    try {
+        await updateDoc(doc(db, "connectionRequests", requestId), { status: 'rejected' });
+    } catch (error) { console.error("Error rejecting connection:", error); }
+  };
   
   const handleNavigate = async (targetView: View) => {
-    setAnalyticsTest(null);
-    setIsLoading(true);
+    setAnalyticsTest(null); setIsLoading(true);
     try {
         if (targetView === 'notifications' && currentUser?.role === Role.Student) {
             const now = new Date().toISOString();
@@ -320,13 +400,32 @@ const App: React.FC = () => {
             const validNotifications = snapshot.docs.map(doc => doc.data() as AppNotification).filter(n => !n.test.endDate || n.test.endDate >= now);
             setNotifications(validNotifications);
         }
-        if (targetView === 'following' && currentUser?.role === Role.Student && currentUser.following.length > 0) {
-            const facultyQuery = query(collection(db, "users"), where("id", "in", currentUser.following));
-            const snapshot = await getDocs(facultyQuery);
-            setFollowingList(snapshot.docs.map(doc => doc.data() as AppUser));
+        if (targetView === 'following' && currentUser?.role === Role.Student) {
+            const userDocSnap = await getDocs(query(collection(db, "users"), where("id", "==", currentUser.id)));
+            if (!userDocSnap.empty) {
+                const latestUserData = userDocSnap.docs[0].data() as AppUser;
+                setCurrentUser(latestUserData);
+                if (latestUserData.following && latestUserData.following.length > 0) {
+                    const facultyQuery = query(collection(db, "users"), where("id", "in", latestUserData.following));
+                    const snapshot = await getDocs(facultyQuery);
+                    setFollowingList(snapshot.docs.map(doc => doc.data() as AppUser));
+                } else { setFollowingList([]); }
+            }
+        }
+        if (targetView === 'followers' && currentUser?.role === Role.Faculty) {
+            const followersQuery = query(collection(db, "users"), where("following", "array-contains", currentUser.id));
+            const snapshot = await getDocs(followersQuery);
+            setFollowers(snapshot.docs.map(doc => doc.data() as AppUser));
+        }
+        if (targetView === 'connect' && currentUser?.role === Role.Faculty) {
+            if (currentUser.facultyConnections && currentUser.facultyConnections.length > 0) {
+                const connectionsQuery = query(collection(db, "users"), where("id", "in", currentUser.facultyConnections));
+                const snapshot = await getDocs(connectionsQuery);
+                setConnectedFaculty(snapshot.docs.map(doc => doc.data() as AppUser));
+            } else { setConnectedFaculty([]); }
         }
     } catch (error) {
-        console.error("Failed to fetch data:", error);
+        console.error("Failed to fetch data for navigation:", error);
         alert("Could not load page data. Please try again.");
     } finally {
         setIsLoading(false);
@@ -352,16 +451,21 @@ const App: React.FC = () => {
   
   const renderContent = () => {
     if (isLoading) return <div className="mt-20"><LoadingSpinner /></div>;
-    if (!currentUser) return <AuthPortal onLogin={handleLogin} onRegister={handleRegister} />;
+    if (view === 'emailVerification') {
+      return <EmailVerification email={verificationEmail} onLoginNavigate={() => setView('auth')} />;
+    }
+    if (!currentUser) return <AuthPortal onLogin={handleLogin} onRegister={handleRegister} onGoogleSignIn={handleGoogleSignIn} onRegistrationSuccess={(email) => { setVerificationEmail(email); setView('emailVerification'); }} />;
     if (currentUser.role === Role.Faculty && !currentUser.isIdVerified) return <IdVerification onVerified={handleCompleteIdVerification} />;
     
     switch (view) {
       case 'profile':
         const goBackView = currentUser.role === Role.Faculty ? 'facultyPortal' : 'studentPortal';
         return <ProfilePage user={currentUser} onLogout={handleLogout} onBack={() => handleNavigate(goBackView)} />;
-      case 'facultyPortal': return <FacultyPortal faculty={currentUser} generatedSets={userGeneratedSets} publishedTests={userPublishedTests} followRequests={userFollowRequests} ignoredNotifications={ignoredByStudents} violationAlerts={violationAlerts} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onFollowRequestResponse={handleFollowRequestResponse} onViewTestAnalytics={handleViewTestAnalytics} onGrantReattempt={handleGrantReattempt} />;
+      case 'facultyPortal': return <FacultyPortal faculty={currentUser} generatedSets={userGeneratedSets} publishedTests={userPublishedTests} followRequests={followRequests} connectionRequests={connectionRequests} ignoredNotifications={ignoredByStudents} violationAlerts={violationAlerts} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onFollowRequestResponse={handleFollowRequestResponse} onViewTestAnalytics={handleViewTestAnalytics} onGrantReattempt={handleGrantReattempt} onViewFollowers={() => handleNavigate('followers')} onNavigateToConnect={() => handleNavigate('connect')} onAcceptConnection={handleAcceptConnection} onRejectConnection={handleRejectConnection} />;
       case 'studentPortal': return <StudentPortal onNavigateToHistory={() => handleNavigate('testHistory')} onNavigateToNotifications={() => handleNavigate('notifications')} onNavigateToFollowing={() => handleNavigate('following')} onSendFollowRequest={handleSendFollowRequest} />;
       case 'following': return <FollowingPage followingList={followingList} onUnfollow={handleUnfollow} onBack={() => handleNavigate('studentPortal')} />;
+      case 'followers': return <FollowersPage followers={followers} onBack={() => handleNavigate('facultyPortal')} />;
+      case 'connect': return <ConnectPage currentUser={currentUser} connectedFaculty={connectedFaculty} connectionRequests={connectionRequests} onSendConnectionRequest={handleSendConnectionRequest} onAcceptConnection={handleAcceptConnection} onRejectConnection={handleRejectConnection} onBack={() => handleNavigate('facultyPortal')} />;
       case 'notifications': return <Notifications notifications={notifications} onStartTest={handleStartTest} onIgnoreTest={handleIgnoreTest} onBack={() => handleNavigate('studentPortal')} />;
       case 'testAnalytics': return analyticsTest ? <TestAnalytics test={analyticsTest} attempts={testAttempts} onBack={() => handleNavigate('facultyPortal')} /> : <ErrorMessage message="No test selected for analytics." />;
       case 'generator': return <McqGeneratorForm onGenerate={handleGenerateMcqs} isLoading={false} />;

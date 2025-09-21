@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { GeneratedMcqSet, Test, FollowRequest, AppUser, CustomFormField, AppNotification, ViolationAlert } from '../types';
+import type { GeneratedMcqSet, Test, FollowRequest, AppUser, CustomFormField, AppNotification, ViolationAlert, ConnectionRequest } from '../types';
 import { McqDisplay } from './McqDisplay';
 
 // --- Sub-component: PublishModal ---
@@ -130,6 +130,7 @@ interface FacultyPortalProps {
   generatedSets: GeneratedMcqSet[];
   publishedTests: Test[];
   followRequests: FollowRequest[];
+  connectionRequests: ConnectionRequest[];
   ignoredNotifications: AppNotification[];
   violationAlerts: ViolationAlert[];
   onPublishTest: (mcqSetId: string, title: string, durationMinutes: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customFormFields: CustomFormField[]) => void;
@@ -137,16 +138,28 @@ interface FacultyPortalProps {
   onFollowRequestResponse: (requestId: string, status: 'accepted' | 'rejected') => void;
   onViewTestAnalytics: (test: Test) => void;
   onGrantReattempt: (alertId: string) => void;
+  onViewFollowers: () => void;
+  onNavigateToConnect: () => void;
+  onAcceptConnection: (requestId: string) => void;
+  onRejectConnection: (requestId: string) => void;
 }
 
-export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generatedSets, publishedTests, followRequests, ignoredNotifications, violationAlerts, onPublishTest, onRevokeTest, onFollowRequestResponse, onViewTestAnalytics, onGrantReattempt }) => {
+export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generatedSets, publishedTests, followRequests, connectionRequests, ignoredNotifications, violationAlerts, onPublishTest, onRevokeTest, onFollowRequestResponse, onViewTestAnalytics, onGrantReattempt, onViewFollowers, onNavigateToConnect, onAcceptConnection, onRejectConnection }) => {
   return (
     <div className="space-y-8">
       <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
-        <h2 className="text-3xl font-bold mb-2 text-gray-800 dark:text-white">Faculty Dashboard</h2>
-        <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg flex items-center gap-4">
-          <p className="text-sm text-blue-800 dark:text-blue-200">Your unique Faculty ID (for students to follow you):</p>
-          <strong className="text-md font-mono bg-white dark:bg-gray-700 px-3 py-1 rounded-md text-blue-900 dark:text-blue-100">{faculty.facultyId}</strong>
+        <div className="flex flex-col sm:flex-row justify-between items-start">
+            <div>
+                <h2 className="text-3xl font-bold mb-2 text-gray-800 dark:text-white">Faculty Dashboard</h2>
+                <div className="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg flex items-center gap-4">
+                  <p className="text-sm text-blue-800 dark:text-blue-200">Your unique Faculty ID:</p>
+                  <strong className="text-md font-mono bg-white dark:bg-gray-700 px-3 py-1 rounded-md">{faculty.facultyId}</strong>
+                </div>
+            </div>
+            <div className="flex items-center gap-2 mt-4 sm:mt-0">
+                <button onClick={onViewFollowers} className="py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">View Followers</button>
+                <button onClick={onNavigateToConnect} className="py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Connect & Chat</button>
+            </div>
         </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -185,7 +198,26 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generated
         </div>
         <div className="lg:col-span-1 space-y-8">
             <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
-                <h3 className="text-2xl font-bold mb-4">Follow Requests</h3>
+                <h3 className="text-2xl font-bold mb-4">Faculty Connection Requests</h3>
+                <div className="space-y-3">
+                    {connectionRequests.length > 0 ? (
+                        connectionRequests.map(req => (
+                            <div key={req.id} className="p-3 border border-purple-300 dark:border-purple-700 rounded-lg bg-purple-50 dark:bg-purple-900/30">
+                                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{req.fromFacultyName}</p>
+                                <p className="text-xs text-gray-600 dark:text-gray-400">{req.fromFacultyCollege}</p>
+                                <div className="mt-2 flex items-center space-x-2">
+                                    <button onClick={() => onAcceptConnection(req.id)} className="w-full text-xs py-1 px-2 bg-green-600 text-white rounded hover:bg-green-700">Accept</button>
+                                    <button onClick={() => onRejectConnection(req.id)} className="w-full text-xs py-1 px-2 bg-gray-600 text-white rounded hover:bg-gray-500">Reject</button>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                         <p className="text-sm text-gray-500 dark:text-gray-400">No new connection requests.</p>
+                    )}
+                </div>
+            </div>
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
+                <h3 className="text-2xl font-bold mb-4">Student Follow Requests</h3>
                 <div className="space-y-3">
                     {followRequests.length > 0 ? (
                         followRequests.map(req => (

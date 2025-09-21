@@ -1,6 +1,6 @@
 {
     "name": "Quizly AI",
-    "short_name": "Quizely",
+    "short_name": "Quizly",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#ffffff",
