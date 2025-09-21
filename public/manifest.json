@@ -1,0 +1,21 @@
+{
+    "name": "Quizly AI",
+    "short_name": "Quizely",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#1f2937",
+    "description": "An AI-powered platform for generating Multiple Choice Questions.",
+    "icons": [
+      {
+        "src": "/App-icon.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "/App-icon.png",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ]
+  }

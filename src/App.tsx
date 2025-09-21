@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { db, auth } from './services/firebase';
-import { collection, query, where, getDocs, doc, setDoc, updateDoc, arrayUnion, onSnapshot, deleteDoc } from "firebase/firestore"; 
+import { collection, query, where, getDocs, doc, setDoc, updateDoc, arrayUnion, onSnapshot, deleteDoc, arrayRemove } from "firebase/firestore"; 
 import type firebase from 'firebase/compat/app';
 import { Header } from './components/Header';
 import { McqGeneratorForm } from './components/McqGeneratorForm';
@@ -18,13 +18,15 @@ import { AuthPortal } from './components/AuthPortal';
 import { IdVerification } from './components/IdVerification';
 import { Notifications } from './components/Notifications';
 import { TestAnalytics } from './components/TestAnalytics';
+import { FollowingPage } from './components/FollowingPage';
+import { ProfilePage } from './components/ProfilePage';
 import { Role } from './types';
 import type { FormState, MCQ, Test, GeneratedMcqSet, Student, TestAttempt, FollowRequest, AppNotification, AppUser, CustomFormField, ViolationAlert } from './types';
 import { generateMcqs } from './services/geminiService';
 
 declare const jspdf: any;
 declare const docx: any;
-type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics';
+type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics' | 'following' | 'profile';
 
 const getInitialState = <T,>(key: string, defaultValue: T): T => {
     try {
@@ -47,6 +49,7 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [ignoredByStudents, setIgnoredByStudents] = useState<AppNotification[]>([]);
   const [violationAlerts, setViolationAlerts] = useState<ViolationAlert[]>([]);
+  const [followingList, setFollowingList] = useState<AppUser[]>([]);
   const [testAttempts, setTestAttempts] = useState<TestAttempt[]>([]);
   const [analyticsTest, setAnalyticsTest] = useState<Test | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -88,7 +91,6 @@ const App: React.FC = () => {
     } else { setCurrentUser(null); setView('auth'); }
   }, [firebaseUser, isLoading, userMetadata, view]);
   
-  // --- REAL-TIME LISTENERS FOR FACULTY (Robust and Simple) ---
   useEffect(() => {
     if (!currentUser || currentUser.role !== Role.Faculty) {
       setPublishedTests([]); setFollowRequests([]); setIgnoredByStudents([]); setViolationAlerts([]);
@@ -138,7 +140,7 @@ const App: React.FC = () => {
   };
 
   const handleCompleteIdVerification = () => { if(!currentUser) return; setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? { ...u, isIdVerified: true } : u)); };
-  const handleLogout = () => auth.signOut();
+  const handleLogout = () => { auth.signOut(); setView('auth'); };
   
   const handleGenerateMcqs = useCallback(async (formData: Omit<FormState, 'aiProvider'>) => {
     if (!currentUser) return;
@@ -292,25 +294,42 @@ const App: React.FC = () => {
         alert(`Request has been ${status}.`);
     } catch (error) { console.error("Error responding to follow request:", error); alert("An error occurred."); }
   };
+
+  const handleUnfollow = async (facultyId: string) => {
+    if (!currentUser || !window.confirm("Are you sure you want to unfollow this faculty member?")) return;
+    try {
+        const studentRef = doc(db, "users", currentUser.id);
+        await updateDoc(studentRef, { following: arrayRemove(facultyId) });
+        setUserMetadata(prev => prev.map(u => u.id === currentUser.id ? { ...u, following: u.following.filter(id => id !== facultyId) } : u));
+        setFollowingList(prev => prev.filter(f => f.id !== facultyId));
+        alert("You have unfollowed the faculty member.");
+    } catch (error) {
+        console.error("Error unfollowing faculty:", error);
+        alert("An error occurred while trying to unfollow.");
+    }
+  };
   
   const handleNavigate = async (targetView: View) => {
     setAnalyticsTest(null);
-    if (targetView === 'notifications' && currentUser?.role === Role.Student) {
-      try {
-        setIsLoading(true);
-        const now = new Date().toISOString();
-        const q = query(collection(db, "notifications"), where("studentId", "==", currentUser.id), where("status", "==", "new"));
-        const snapshot = await getDocs(q);
-        const validNotifications = snapshot.docs
-          .map(doc => doc.data() as AppNotification)
-          .filter(n => !n.test.endDate || n.test.endDate >= now);
-        setNotifications(validNotifications);
-      } catch (error) {
-        console.error("Failed to fetch notifications:", error);
-        alert("Could not load notifications. Please try again.");
-      } finally {
+    setIsLoading(true);
+    try {
+        if (targetView === 'notifications' && currentUser?.role === Role.Student) {
+            const now = new Date().toISOString();
+            const q = query(collection(db, "notifications"), where("studentId", "==", currentUser.id), where("status", "==", "new"));
+            const snapshot = await getDocs(q);
+            const validNotifications = snapshot.docs.map(doc => doc.data() as AppNotification).filter(n => !n.test.endDate || n.test.endDate >= now);
+            setNotifications(validNotifications);
+        }
+        if (targetView === 'following' && currentUser?.role === Role.Student && currentUser.following.length > 0) {
+            const facultyQuery = query(collection(db, "users"), where("id", "in", currentUser.following));
+            const snapshot = await getDocs(facultyQuery);
+            setFollowingList(snapshot.docs.map(doc => doc.data() as AppUser));
+        }
+    } catch (error) {
+        console.error("Failed to fetch data:", error);
+        alert("Could not load page data. Please try again.");
+    } finally {
         setIsLoading(false);
-      }
     }
     setView(targetView);
   };
@@ -337,8 +356,12 @@ const App: React.FC = () => {
     if (currentUser.role === Role.Faculty && !currentUser.isIdVerified) return <IdVerification onVerified={handleCompleteIdVerification} />;
     
     switch (view) {
+      case 'profile':
+        const goBackView = currentUser.role === Role.Faculty ? 'facultyPortal' : 'studentPortal';
+        return <ProfilePage user={currentUser} onLogout={handleLogout} onBack={() => handleNavigate(goBackView)} />;
       case 'facultyPortal': return <FacultyPortal faculty={currentUser} generatedSets={userGeneratedSets} publishedTests={userPublishedTests} followRequests={userFollowRequests} ignoredNotifications={ignoredByStudents} violationAlerts={violationAlerts} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onFollowRequestResponse={handleFollowRequestResponse} onViewTestAnalytics={handleViewTestAnalytics} onGrantReattempt={handleGrantReattempt} />;
-      case 'studentPortal': return <StudentPortal onNavigateToHistory={() => handleNavigate('testHistory')} onNavigateToNotifications={() => handleNavigate('notifications')} onSendFollowRequest={handleSendFollowRequest} />;
+      case 'studentPortal': return <StudentPortal onNavigateToHistory={() => handleNavigate('testHistory')} onNavigateToNotifications={() => handleNavigate('notifications')} onNavigateToFollowing={() => handleNavigate('following')} onSendFollowRequest={handleSendFollowRequest} />;
+      case 'following': return <FollowingPage followingList={followingList} onUnfollow={handleUnfollow} onBack={() => handleNavigate('studentPortal')} />;
       case 'notifications': return <Notifications notifications={notifications} onStartTest={handleStartTest} onIgnoreTest={handleIgnoreTest} onBack={() => handleNavigate('studentPortal')} />;
       case 'testAnalytics': return analyticsTest ? <TestAnalytics test={analyticsTest} attempts={testAttempts} onBack={() => handleNavigate('facultyPortal')} /> : <ErrorMessage message="No test selected for analytics." />;
       case 'generator': return <McqGeneratorForm onGenerate={handleGenerateMcqs} isLoading={false} />;
@@ -355,19 +378,18 @@ const App: React.FC = () => {
     }
   };
 
- 
-return (
-  // If a test is active, only render the TestPage component. Otherwise, render the full layout.
-  view === 'test' ? (
-      renderContent()
-  ) : (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
-        <Header user={currentUser} activeView={view} onNavigate={handleNavigate} onLogout={handleLogout} notificationCount={notifications.length} />
-        <main className="container mx-auto p-4 md:p-8">
-          {renderContent()}
-        </main>
-      </div>
-  )
-);
+  return (
+    view === 'test' ? (
+        renderContent()
+    ) : (
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
+          <Header user={currentUser} activeView={view} onNavigate={handleNavigate} onLogout={handleLogout} />
+          <main className="container mx-auto p-4 md:p-8">
+            {renderContent()}
+          </main>
+        </div>
+    )
+  );
 };
+
 export default App;

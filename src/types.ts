@@ -114,7 +114,7 @@ export interface AppNotification {
   facultyName: string;
   test: Test;
   status: 'new' | 'ignored';
-  ignoredTimestamp?: string;
+  actionTimestamp?: string; // Stored as ISO string for ignored/disqualified events
 }
 
 export interface ViolationAlert {
@@ -127,3 +127,14 @@ export interface ViolationAlert {
     timestamp: string;
     status: 'pending' | 'resolved';
 }
+
+export interface AppUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  facultyId: string;
+  isIdVerified: boolean;
+  following: string[];
+}
+

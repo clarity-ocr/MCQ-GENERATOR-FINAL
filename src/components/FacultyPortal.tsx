@@ -30,13 +30,11 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
     if (!title.trim()) { setError("Test Title is required."); return; }
     if (duration <= 0) { setError("Duration must be a positive number."); return; }
     if (endDate && new Date(endDate) <= new Date()) { setError("End Date must be in the future."); return; }
-    
     const finalCustomFields = studentFieldsMode === 'custom' ? customFields.filter(f => f.label.trim() !== '') : [];
     if (studentFieldsMode === 'custom' && finalCustomFields.length === 0) {
       setError("Please add at least one custom field or switch to Default mode.");
       return;
     }
-
     onSubmit(title.trim(), duration, endDate || null, studentFieldsMode, finalCustomFields);
   };
   
@@ -60,7 +58,6 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
               <input type="datetime-local" id="endDate" value={endDate} onChange={e => setEndDate(e.target.value)} className="mt-1 w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md"/>
             </div>
           </div>
-
           <div className="pt-2">
             <label className="block text-sm font-medium mb-2">Student Details Form</label>
             <div className="flex gap-4 p-2 bg-gray-100 dark:bg-gray-700/50 rounded-md">
@@ -74,7 +71,6 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
               </label>
             </div>
           </div>
-
           {studentFieldsMode === 'custom' && (
               <div className="p-4 border border-dashed border-gray-300 dark:border-gray-600 rounded-md space-y-3">
                 <h4 className="font-semibold">Custom Student Fields</h4>
@@ -87,9 +83,7 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
                 <button type="button" onClick={handleAddField} className="text-sm text-blue-600 hover:underline">+ Add Another Field</button>
               </div>
           )}
-
           {error && <p className="text-sm text-red-500 bg-red-100 dark:bg-red-900/50 p-2 rounded-md">{error}</p>}
-          
           <div className="mt-6 flex justify-end space-x-3">
             <button type="button" onClick={onClose} className="py-2 px-4 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium">Cancel</button>
             <button type="submit" className="py-2 px-4 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Publish Test</button>
@@ -104,12 +98,10 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
 const GeneratedSet: React.FC<{ set: GeneratedMcqSet; onPublish: (id: string, title: string, duration: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customFields: CustomFormField[]) => void; }> = ({ set, onPublish }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  
   const handlePublish = (title: string, duration: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customFields: CustomFormField[]) => {
     onPublish(set.id, title, duration, endDate, studentFieldsMode, customFields);
     setShowModal(false);
   };
-  
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg">
       <div className="p-4 flex justify-between items-center">
@@ -157,7 +149,6 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generated
           <strong className="text-md font-mono bg-white dark:bg-gray-700 px-3 py-1 rounded-md text-blue-900 dark:text-blue-100">{faculty.facultyId}</strong>
         </div>
       </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
             <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
@@ -170,7 +161,6 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generated
                 )}
                 </div>
             </div>
-            
             <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg">
                 <h3 className="text-2xl font-bold mb-4">Published Tests</h3>
                 <div className="space-y-3">

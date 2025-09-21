@@ -2,12 +2,11 @@ import React from 'react';
 import type { AppUser } from '../types';
 import { Role } from '../types';
 
-type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications';
+type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics' | 'following' | 'profile';
 
 interface HeaderProps {
   user: AppUser | null;
   activeView: View;
-  notificationCount: number;
   onNavigate: (view: View) => void;
   onLogout: () => void;
 }
@@ -16,7 +15,6 @@ const NavButton: React.FC<{ active: boolean; onClick: () => void; children: Reac
   const baseClasses = "px-4 py-2 rounded-md text-sm font-medium transition-colors relative";
   const activeClasses = "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200";
   const inactiveClasses = "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700";
-  
   return (
     <button onClick={onClick} className={`${baseClasses} ${active ? activeClasses : inactiveClasses}`}>
       {children}
@@ -24,23 +22,22 @@ const NavButton: React.FC<{ active: boolean; onClick: () => void; children: Reac
   );
 };
 
-
-export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate, onLogout, notificationCount }) => {
+export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate, onLogout }) => {
   if (activeView === 'test') {
     return null;
   }
-  const isFacultyView = ['facultyPortal', 'generator', 'results', 'manualCreator'].includes(activeView);
-  const isStudentView = ['studentPortal', 'studentLogin', 'test', 'testResults', 'testHistory', 'notifications'].includes(activeView);
+  
+  const isFacultyView = ['facultyPortal', 'generator', 'results', 'manualCreator', 'testAnalytics'].includes(activeView);
+  const isStudentView = ['studentPortal', 'notifications', 'testHistory', 'following'].includes(activeView);
   
   return (
     <header className="bg-white dark:bg-gray-800 shadow-md">
       <div className="container mx-auto px-4 py-3 md:px-8 flex justify-between items-center">
         <div className="flex items-center space-x-3">
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 9h-2v2H9v-2H7v-2h2V9h2v2h2v2zm5 9H6V4h7v5h5v11z"/>
-          </svg>
+           {/* ** UPDATED: Using your App-logo.png ** */}
+           <img src="/App-icon.png" alt="Quizly AI Logo" className="h-8 w-8" />
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-            AI MCQ Platform
+            Quizly AI
           </h1>
         </div>
         
@@ -49,7 +46,7 @@ export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate, on
             <nav className="hidden sm:flex items-center space-x-2 bg-gray-50 dark:bg-gray-900 p-1 rounded-lg">
               {user.role === Role.Faculty && (
                 <>
-                  <NavButton active={isFacultyView && ['facultyPortal'].includes(activeView)} onClick={() => onNavigate('facultyPortal')}>Dashboard</NavButton>
+                  <NavButton active={isFacultyView && activeView === 'facultyPortal'} onClick={() => onNavigate('facultyPortal')}>Dashboard</NavButton>
                   <NavButton active={['generator', 'results'].includes(activeView)} onClick={() => onNavigate('generator')}>AI Generator</NavButton>
                   <NavButton active={activeView === 'manualCreator'} onClick={() => onNavigate('manualCreator')}>Manual Creator</NavButton>
                 </>
@@ -57,18 +54,18 @@ export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate, on
                {user.role === Role.Student && (
                 <>
                   <NavButton active={isStudentView} onClick={() => onNavigate('studentPortal')}>Student Portal</NavButton>
-                  <NavButton active={activeView === 'notifications'} onClick={() => onNavigate('notifications')}>
-                    Notifications
-                    {notificationCount > 0 && (
-                      <span className="absolute top-0 right-0 -mt-1 -mr-1 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">{notificationCount}</span>
-                    )}
-                  </NavButton>
                 </>
               )}
             </nav>
             <div className="flex items-center space-x-3">
               <span className="text-sm text-gray-600 dark:text-gray-300 hidden md:block">{user.email}</span>
-              <button onClick={onLogout} className="px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/50 rounded-md">Logout</button>
+              <button 
+                onClick={() => onNavigate('profile')} 
+                className="w-10 h-10 flex items-center justify-center bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-bold text-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                title="View Profile"
+              >
+                {user.name.charAt(0).toUpperCase()}
+              </button>
             </div>
           </div>
         )}
