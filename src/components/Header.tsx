@@ -44,9 +44,9 @@ export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate }) 
       <div className="container mx-auto px-4 py-3 md:px-8">
         <div className="flex justify-between items-center">
             <div className="flex items-center space-x-3">
-               <img src="/App-logo.png" alt="Quizely AI Logo" className="h-8 w-8" />
+               <img src="/App-logo.png" alt="Quizly AI Logo" className="h-8 w-8" />
               <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                Quizely AI
+                Quizly AI
               </h1>
             </div>
             

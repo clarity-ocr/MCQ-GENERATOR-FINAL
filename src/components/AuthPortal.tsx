@@ -149,8 +149,8 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({ onLogin, onRegister, onG
     <div className="max-w-md mx-auto mt-10">
       <div className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-lg">
         <div className="text-center mb-6">
-          <img src="/App-logo.png" alt="Quizely AI Logo" className="w-16 h-16 mx-auto mb-2" />
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">{isLogin ? 'Welcome to Quizely AI' : 'Create Your Account'}</h2>
+          <img src="/App-logo.png" alt="Quizly AI Logo" className="w-16 h-16 mx-auto mb-2" />
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">{isLogin ? 'Welcome to Quizly AI' : 'Create Your Account'}</h2>
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
