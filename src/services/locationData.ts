@@ -1,21 +1,17 @@
-// in src/services/locationData.ts
+// src/services/locationData.ts
 
-export const countries: string[] = ["India", "United States"];
+export const countries: string[] = ["USA", "India"];
 
-export const states: { [key:string]: string[] } = {
-  "India": ["Andhra Pradesh", "Tamil Nadu", "Maharashtra", "Karnataka"],
-  "United States": ["California", "New York", "Texas", "Florida"],
+export const states: { [key: string]: string[] } = {
+  USA: ["California", "Texas", "Florida"],
+  India: ["Maharashtra", "Karnataka", "Tamil Nadu"],
 };
 
-export const districts: { [key:string]: string[] } = {
-  // India
-  "Andhra Pradesh": ["Visakhapatnam", "Vijayawada", "Guntur", "Nellore"],
-  "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai", "Tiruchirappalli"],
-  "Maharashtra": ["Mumbai", "Pune", "Nagpur", "Thane"],
-  "Karnataka": ["Bengaluru", "Mysuru", "Mangaluru", "Hubballi"],
-  // United States
-  "California": ["Los Angeles County", "San Diego County", "Orange County", "Riverside County"],
-  "New York": ["Kings County (Brooklyn)", "Queens County", "New York County (Manhattan)", "Suffolk County"],
-  "Texas": ["Harris County (Houston)", "Dallas County", "Tarrant County", "Bexar County"],
-  "Florida": ["Miami-Dade County", "Broward County", "Palm Beach County", "Hillsborough County"],
+export const districts: { [key: string]: string[] } = {
+  California: ["Los Angeles", "San Francisco", "San Diego"],
+  Texas: ["Harris", "Dallas", "Tarrant"],
+  Florida: ["Miami-Dade", "Broward", "Palm Beach"],
+  Maharashtra: ["Mumbai", "Pune", "Nagpur"],
+  Karnataka: ["Bengaluru Urban", "Mysuru", "Mangaluru"],
+  "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai"],
 };

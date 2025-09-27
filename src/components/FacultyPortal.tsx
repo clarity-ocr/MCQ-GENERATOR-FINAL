@@ -1,5 +1,10 @@
+// src/components/FacultyPortal.tsx
+
 import React, { useState } from 'react';
-import type { GeneratedMcqSet, Test, FollowRequest, AppUser, CustomFormField, AppNotification, ViolationAlert, ConnectionRequest } from '../types';
+// FIX 1: Import the ViolationAlert TYPE and RENAME it to avoid the name collision.
+import type { GeneratedMcqSet, Test, FollowRequest, AppUser, CustomFormField, AppNotification, ConnectionRequest, ViolationAlert as ViolationAlertType } from '../types';
+// FIX 2: Import the ViolationAlert COMPONENT separately.
+import { ViolationManager } from './ViolationManager';
 import { McqDisplay } from './McqDisplay';
 
 // --- Sub-component: PublishModal ---
@@ -107,7 +112,7 @@ const GeneratedSet: React.FC<{ set: GeneratedMcqSet; onPublish: (id: string, tit
       <div className="p-4 flex justify-between items-center">
         <div>
           <h4 className="font-semibold">Set of {set.mcqs.length} questions</h4>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Generated on {set.timestamp.toLocaleString()}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Generated on {new Date(set.timestamp).toLocaleString()}</p>
         </div>
         <div className="flex items-center space-x-2">
           <button onClick={() => setIsExpanded(!isExpanded)} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">{isExpanded ? 'Collapse' : 'View'}</button>
@@ -132,7 +137,7 @@ interface FacultyPortalProps {
   followRequests: FollowRequest[];
   connectionRequests: ConnectionRequest[];
   ignoredNotifications: AppNotification[];
-  violationAlerts: ViolationAlert[];
+  violationAlerts: ViolationAlertType[]; // <-- FIX: Use the aliased type here
   onPublishTest: (mcqSetId: string, title: string, durationMinutes: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customFormFields: CustomFormField[]) => void;
   onRevokeTest: (testId: string) => void;
   onFollowRequestResponse: (requestId: string, status: 'accepted' | 'rejected') => void;
@@ -168,7 +173,7 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generated
                 <h3 className="text-2xl font-bold mb-4">Unpublished Question Sets</h3>
                 <div className="space-y-4">
                 {generatedSets.length > 0 ? (
-                    [...generatedSets].sort((a,b) => b.timestamp.getTime() - a.timestamp.getTime()).map(set => <GeneratedSet key={set.id} set={set} onPublish={onPublishTest} />)
+                    [...generatedSets].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(set => <GeneratedSet key={set.id} set={set} onPublish={onPublishTest} />)
                 ) : (
                     <p className="text-gray-500 dark:text-gray-400">No unpublished question sets. Use the AI or Manual Generator to create some.</p>
                 )}
@@ -252,12 +257,9 @@ export const FacultyPortal: React.FC<FacultyPortalProps> = ({ faculty, generated
               <h3 className="text-2xl font-bold mb-4">Violation Alerts</h3>
               <div className="space-y-3">
                   {violationAlerts.length > 0 ? (
+                      // FIX: Render the imported ViolationAlert component
                       violationAlerts.map(alert => (
-                          <div key={alert.id} className="p-3 border border-red-300 dark:border-red-700 rounded-lg bg-red-50 dark:bg-red-900/30">
-                              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{alert.studentEmail}</p>
-                              <p className="text-xs text-gray-600 dark:text-gray-400">was disqualified from <span className="font-medium">{alert.testTitle}</span>.</p>
-                              <button onClick={() => onGrantReattempt(alert.id)} className="w-full mt-2 text-xs py-1 px-2 bg-blue-600 text-white rounded hover:bg-blue-700">Grant Re-attempt Permission</button>
-                          </div>
+                          <ViolationManager key={alert.id} alert={alert} onGrantReattempt={onGrantReattempt} />
                       ))
                   ) : (<p className="text-sm text-gray-500 dark:text-gray-400">No new violation alerts.</p>)}
               </div>

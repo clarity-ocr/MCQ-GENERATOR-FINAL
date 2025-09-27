@@ -1,8 +1,11 @@
+// src/components/Header.tsx
+
 import React, { useState } from 'react';
 import type { AppUser } from '../types';
 import { Role } from '../types';
 
-type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics' | 'following' | 'profile';
+// FIX: Add 'followers' to the View type to match the definition in App.tsx
+type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics' | 'following' | 'profile' | 'followers';
 
 interface HeaderProps {
   user: AppUser | null;
@@ -31,7 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate }) 
     return null;
   }
   
-  const isFacultyView = ['facultyPortal', 'generator', 'results', 'manualCreator', 'testAnalytics'].includes(activeView);
+  const isFacultyView = ['facultyPortal', 'generator', 'results', 'manualCreator', 'testAnalytics', 'followers'].includes(activeView);
   const isStudentView = ['studentPortal', 'notifications', 'testHistory', 'following'].includes(activeView);
 
   const handleMobileNavClick = (view: View) => {
