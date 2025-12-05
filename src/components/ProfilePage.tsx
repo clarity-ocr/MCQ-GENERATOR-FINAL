@@ -61,7 +61,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onLogout, onBack
         <div className="!mt-8">
             <ProfileOption
               title="Logout"
-              description="Sign out of your Quizly AI account."
+              description="Sign out of your Quizapo AI account."
               buttonText="Logout"
               onClick={onLogout}
             />

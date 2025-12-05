@@ -1,11 +1,30 @@
 // src/components/Header.tsx
 
 import React, { useState } from 'react';
-import type { AppUser } from '../types';
-import { Role } from '../types';
-
-// FIX: Add 'followers' to the View type to match the definition in App.tsx
-type View = 'auth' | 'idVerification' | 'generator' | 'results' | 'studentPortal' | 'studentLogin' | 'test' | 'facultyPortal' | 'testResults' | 'testHistory' | 'manualCreator' | 'notifications' | 'testAnalytics' | 'following' | 'profile' | 'followers';
+import { Button } from './ui/button';
+import { 
+  LogOut, 
+  User as UserIcon, 
+  Bell, 
+  Menu, 
+  X,
+  LayoutDashboard,
+  FileText,
+  Users,
+  ShieldAlert,
+  PlusCircle,
+  Settings
+} from 'lucide-react';
+import { AppUser, View } from '../types';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { cn } from '../lib/utils'; // Ensures 'cn' is found
 
 interface HeaderProps {
   user: AppUser | null;
@@ -14,108 +33,137 @@ interface HeaderProps {
   onLogout: () => void;
 }
 
-const NavButton: React.FC<{ active: boolean; onClick: () => void; children: React.ReactNode; isMobile?: boolean }> = ({ active, onClick, children, isMobile = false }) => {
-  const baseClasses = "px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50";
-  const activeClasses = "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200";
-  const inactiveClasses = "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700";
-  const mobileClasses = isMobile ? "block w-full text-left" : "";
-
-  return (
-    <button onClick={onClick} className={`${baseClasses} ${active ? activeClasses : inactiveClasses} ${mobileClasses}`}>
-      {children}
-    </button>
-  );
-};
-
-export const Header: React.FC<HeaderProps> = ({ user, activeView, onNavigate }) => {
+export const Header: React.FC<HeaderProps> = ({ 
+  user, 
+  activeView, 
+  onNavigate, 
+  onLogout 
+}) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  if (activeView === 'test') {
-    return null;
-  }
-  
-  const isFacultyView = ['facultyPortal', 'generator', 'results', 'manualCreator', 'testAnalytics', 'followers'].includes(activeView);
-  const isStudentView = ['studentPortal', 'notifications', 'testHistory', 'following'].includes(activeView);
+  if (!user) return null;
 
-  const handleMobileNavClick = (view: View) => {
-    onNavigate(view);
-    setIsMobileMenuOpen(false);
-  };
-  
+  const NavItem = ({ view, label, icon: Icon }: { view: View; label: string; icon: React.ElementType }) => (
+    <button 
+      onClick={() => {
+        onNavigate(view);
+        setIsMobileMenuOpen(false);
+      }}
+      className={cn(
+        "flex items-center gap-2 text-sm font-medium transition-colors hover:text-primary",
+        activeView === view ? "text-primary" : "text-muted-foreground"
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </button>
+  );
+
   return (
-    <header className="bg-white dark:bg-gray-800 shadow-md sticky top-0 z-40">
-      <div className="container mx-auto px-4 py-3 md:px-8">
-        <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-               <img src="/App-logo.png" alt="Quizly AI Logo" className="h-8 w-8" />
-              <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                Quizly AI
-              </h1>
-            </div>
-            
-            {user && (
-              <div className="flex items-center space-x-4">
-                <nav className="hidden sm:flex items-center space-x-2 bg-gray-50 dark:bg-gray-900 p-1 rounded-lg">
-                  {user.role === Role.Faculty && (
-                    <>
-                      <NavButton active={isFacultyView && activeView === 'facultyPortal'} onClick={() => onNavigate('facultyPortal')}>Dashboard</NavButton>
-                      <NavButton active={['generator', 'results'].includes(activeView)} onClick={() => onNavigate('generator')}>AI Generator</NavButton>
-                      <NavButton active={activeView === 'manualCreator'} onClick={() => onNavigate('manualCreator')}>Manual Creator</NavButton>
-                    </>
-                  )}
-                   {user.role === Role.Student && (
-                    <>
-                      <NavButton active={isStudentView} onClick={() => onNavigate('studentPortal')}>Student Portal</NavButton>
-                    </>
-                  )}
-                </nav>
-                <div className="flex items-center space-x-3">
-                  <div className="hidden md:flex flex-col items-end">
-                      <span className="font-semibold text-sm text-gray-800 dark:text-gray-200">{user.name}</span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user.role}</span>
-                  </div>
-                  <button 
-                    onClick={() => onNavigate('profile')} 
-                    className="w-10 h-10 flex items-center justify-center bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-bold text-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-all duration-200 ease-in-out transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-                    title="View Profile"
-                  >
-                    {user.name.charAt(0).toUpperCase()}
-                  </button>
-                </div>
-                <div className="sm:hidden">
-                    <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500" aria-label="Open main menu">
-                        <svg className="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                            {isMobileMenuOpen ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                            ) : (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-                            )}
-                        </svg>
-                    </button>
-                </div>
-              </div>
-            )}
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-16 max-w-screen-2xl items-center justify-between px-4">
+        
+        {/* --- LOGO --- */}
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate('dashboard')}>
+          <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center shadow-sm">
+            <span className="text-primary-foreground font-bold text-xl">Q</span>
+          </div>
+          <span className="font-bold text-lg hidden sm:inline-block tracking-tight">Quizly AI</span>
         </div>
-        {isMobileMenuOpen && user && (
-            <div className="sm:hidden mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                <nav className="flex flex-col space-y-2">
-                  {user.role === Role.Faculty && (
-                    <>
-                      <NavButton isMobile active={isFacultyView && activeView === 'facultyPortal'} onClick={() => handleMobileNavClick('facultyPortal')}>Dashboard</NavButton>
-                      <NavButton isMobile active={['generator', 'results'].includes(activeView)} onClick={() => handleMobileNavClick('generator')}>AI Generator</NavButton>
-                      <NavButton isMobile active={activeView === 'manualCreator'} onClick={() => handleMobileNavClick('manualCreator')}>Manual Creator</NavButton>
-                    </>
-                  )}
-                  {user.role === Role.Student && (
-                    <>
-                      <NavButton isMobile active={isStudentView} onClick={() => handleMobileNavClick('studentPortal')}>Student Portal</NavButton>
-                    </>
-                  )}
-                  <NavButton isMobile active={activeView === 'profile'} onClick={() => handleMobileNavClick('profile')}>Profile & Settings</NavButton>
-                </nav>
-            </div>
-        )}
+
+        {/* --- DESKTOP NAVIGATION --- */}
+        <nav className="hidden md:flex items-center gap-6">
+          <NavItem view="dashboard" label="Dashboard" icon={LayoutDashboard} />
+          <NavItem view="content" label="Content" icon={FileText} />
+          <NavItem view="network" label="Network" icon={Users} />
+          <NavItem view="integrity" label="Integrity" icon={ShieldAlert} />
+          <NavItem view="generator" label="Create" icon={PlusCircle} />
+        </nav>
+
+        {/* --- ACTIONS --- */}
+        <div className="flex items-center gap-2">
+          
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="md:hidden"
+            onClick={() => onNavigate('generator')}
+          >
+            <PlusCircle className="h-5 w-5" />
+          </Button>
+
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => onNavigate('notifications')}
+            className={activeView === 'notifications' ? "text-primary bg-accent" : ""}
+          >
+             <Bell className="h-5 w-5" />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="relative h-9 w-9 rounded-full ml-1">
+                 <div className="flex h-full w-full items-center justify-center rounded-full bg-muted border border-border overflow-hidden">
+                    <span className="text-xs font-semibold">{user.name.charAt(0).toUpperCase()}</span>
+                 </div>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user.name}</p>
+                  <p className="text-xs leading-none text-muted-foreground">@{user.username}</p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onNavigate('profile')}>
+                <UserIcon className="mr-2 h-4 w-4" /> Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onNavigate('dashboard')}>
+                <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onLogout} className="text-red-600 focus:text-red-600">
+                <LogOut className="mr-2 h-4 w-4" /> Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="md:hidden ml-1" 
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          >
+            {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
       </div>
+
+      {/* --- MOBILE MENU --- */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden border-t border-border bg-background p-4 animate-in slide-in-from-top-5 fade-in duration-200 shadow-lg">
+           <div className="grid gap-2">
+             <Button variant="ghost" className="justify-start" onClick={() => { onNavigate('dashboard'); setIsMobileMenuOpen(false); }}>
+               <LayoutDashboard className="mr-2 h-4 w-4" /> Dashboard
+             </Button>
+             <Button variant="ghost" className="justify-start" onClick={() => { onNavigate('content'); setIsMobileMenuOpen(false); }}>
+               <FileText className="mr-2 h-4 w-4" /> Content
+             </Button>
+             <Button variant="ghost" className="justify-start" onClick={() => { onNavigate('network'); setIsMobileMenuOpen(false); }}>
+               <Users className="mr-2 h-4 w-4" /> Network
+             </Button>
+             <Button variant="ghost" className="justify-start" onClick={() => { onNavigate('integrity'); setIsMobileMenuOpen(false); }}>
+               <ShieldAlert className="mr-2 h-4 w-4" /> Integrity
+             </Button>
+             <div className="my-2 border-t border-border" />
+             <Button variant="ghost" className="justify-start text-destructive" onClick={onLogout}>
+               <LogOut className="mr-2 h-4 w-4" /> Log out
+             </Button>
+           </div>
+        </div>
+      )}
     </header>
   );
 };

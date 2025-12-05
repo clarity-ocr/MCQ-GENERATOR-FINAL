@@ -1,5 +1,5 @@
 {
-  "name": "Quizly AI  V2",
+  "name": "Quizapo AI  V2",
   "description": "An AI-powered platform to generate Multiple Choice Questions from a topic or study material. Designed for educators to quickly create assessments.",
   "requestFramePermissions": [
     "camera"

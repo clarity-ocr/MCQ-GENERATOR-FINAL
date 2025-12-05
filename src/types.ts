@@ -1,3 +1,5 @@
+// src/types.ts
+
 export enum Difficulty {
   Easy = "Easy",
   Medium = "Medium",
@@ -24,45 +26,75 @@ export enum Role {
   Student = 'student',
 }
 
+// Updated View type to support the new modular architecture
+export type View = 
+  | 'auth' 
+  | 'emailVerification' 
+  | 'idVerification' 
+  // -- New Main Views --
+  | 'dashboard'     // Stats & Charts
+  | 'content'       // Tests & Drafts
+  | 'network'       // Followers & Connections
+  | 'integrity'     // Violations & Logs
+  // -- Sub Views --
+  | 'generator' 
+  | 'results' 
+  | 'manualCreator' 
+  | 'test' 
+  | 'studentLogin' 
+  | 'testResults' 
+  | 'testHistory' 
+  | 'notifications' 
+  | 'testAnalytics' 
+  | 'profile' 
+  // Legacy mappings (redirected in App.tsx)
+  | 'studentPortal' 
+  | 'facultyPortal' 
+  | 'following' 
+  | 'followers' 
+  | 'connect';
+
 export interface AppUser {
   id: string; // Firebase UID
+  username: string;
   name: string;
   email: string;
   role: Role;
   collegeName: string; 
-  country: string; // <<< NEW FIELD
-  state: string; // <<< NEW FIELD
-  district: string; // <<< NEW FIELD
+  country: string;
+  state: string;
+  district: string;
   facultyId: string;
   isIdVerified: boolean;
-  following: string[];
-  facultyConnections?: string[];
+  following: string[]; // Array of User IDs
+  followers?: string[]; // Array of User IDs
+  facultyConnections?: string[]; // Array of User IDs
 }
 
-// ** NEW TYPE for faculty-to-faculty connection requests **
 export interface ConnectionRequest {
   id: string;
-  fromFacultyId: string; // The AppUser ID of the sender
+  fromFacultyId: string;
   fromFacultyName: string;
   fromFacultyCollege: string;
-  toFacultyId: string; // The AppUser ID of the receiver
+  toFacultyId: string;
   status: 'pending' | 'accepted' | 'rejected';
 }
+
 export interface ChatMessage {
   id: string;
-  chatId: string; // Combination of the two faculty UIDs
+  chatId: string;
   senderId: string;
   senderName: string;
-  text?: string; // Text is optional for image messages
-  imageUrl?: string; // URL for the uploaded image
-  timestamp: string; // Stored as ISO string
+  text?: string;
+  imageUrl?: string;
+  timestamp: string | Date;
 }
 
 export interface MCQ {
   question: string;
   options: string[];
   answer: string;
-  explanation:string;
+  explanation: string;
 }
 
 export interface FormState {
@@ -73,7 +105,7 @@ export interface FormState {
   studyMaterial: string;
   imageData?: {
     mimeType: string;
-    data: string; // base64 encoded string
+    data: string;
   } | null;
   aiProvider: AiProvider;
 }
@@ -90,7 +122,7 @@ export interface Test {
   questions: MCQ[];
   studentFieldsMode: 'default' | 'custom';
   customStudentFields: CustomFormField[];
-  endDate: string | null; // Stored as ISO string
+  endDate: string | null;
   disqualifiedStudents?: string[]; 
 }
 
@@ -126,7 +158,7 @@ export interface FollowRequest {
   id: string;
   studentId: string;
   studentEmail: string;
-  facultyId: string; // This is the AppUser ID (UID) of the faculty
+  facultyId: string;
   status: 'pending' | 'accepted' | 'rejected';
 }
 
@@ -138,7 +170,7 @@ export interface AppNotification {
   facultyName: string;
   test: Test;
   status: 'new' | 'ignored';
-  actionTimestamp?: string; // Stored as ISO string for ignored/disqualified events
+  actionTimestamp?: string;
 }
 
 export interface ViolationAlert {
@@ -151,14 +183,3 @@ export interface ViolationAlert {
     timestamp: string;
     status: 'pending' | 'resolved';
 }
-
-export interface AppUser {
-  id: string;
-  name: string;
-  email: string;
-  role: Role;
-  facultyId: string;
-  isIdVerified: boolean;
-  following: string[];
-}
-

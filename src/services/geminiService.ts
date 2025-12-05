@@ -14,7 +14,7 @@ const buildPrompt = (inputs: FormState): string => {
   const contentSource = imageData ? "the provided image" : "the provided study material";
 
   return `
-You are an Quizly AI. ALWAYS return only valid JSON (no explanation, no extra text).
+You are an Quizapo AI. ALWAYS return only valid JSON (no explanation, no extra text).
 Inputs:
 - topic: "${topic}"
 - difficulty: "${difficulty}"
