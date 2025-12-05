@@ -1,5 +1,20 @@
+// src/components/TestPage.tsx
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { Test, Student } from '../types';
+import { 
+  Clock, 
+  AlertTriangle, 
+  Flag, 
+  ChevronLeft, 
+  ChevronRight, 
+  Menu, 
+  X, 
+  Maximize2
+} from 'lucide-react';
+import { Button } from './ui/button';
+import { Card } from './ui/card';
+import type { Test, Student, MCQ } from '../types';
+import { cn } from '../lib/utils';
 
 interface TestPageProps {
   test: Test;
@@ -9,95 +24,107 @@ interface TestPageProps {
 
 const VIOLATION_LIMIT = 3;
 
+// Fisher-Yates Shuffle
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) => {
+  // --- STATE ---
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<(string | null)[]>(() => Array(test.questions.length).fill(null));
+  const [markedForReview, setMarkedForReview] = useState<number[]>([]);
   const [timeLeft, setTimeLeft] = useState(test.durationMinutes * 60);
   const [violations, setViolations] = useState(0);
-  const [isFullScreen, setIsFullScreen] = useState(document.fullscreenElement != null);
-  
-  // Use a ref to hold a stable reference to the onFinish function
-  const onFinishRef = useRef(onFinish);
-  useEffect(() => {
-    onFinishRef.current = onFinish;
-  }, [onFinish]);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [showViolationModal, setShowViolationModal] = useState(false);
 
-  // Use a ref to get the latest state inside callbacks that can't re-render
-  const stateRef = useRef({ violations, answers });
-  useEffect(() => {
-    stateRef.current = { violations, answers };
-  }, [violations, answers]);
+  // --- SHUFFLING ---
+  const [processedQuestions, setProcessedQuestions] = useState<MCQ[]>([]);
 
-  const currentQuestion = test.questions[currentQuestionIndex];
-  
-  // A stable function to end the test
-  const endTest = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
+  useEffect(() => {
+    let qs = [...test.questions];
+    if (test.shuffleQuestions) qs = shuffleArray(qs);
+    if (test.shuffleOptions) {
+        qs = qs.map(q => ({ ...q, options: shuffleArray(q.options) }));
     }
-    // Use the ref to ensure the latest onFinish function is called
+    setProcessedQuestions(qs);
+  }, [test]);
+
+  // --- REFS ---
+  const onFinishRef = useRef(onFinish);
+  const stateRef = useRef({ violations, answers });
+
+  useEffect(() => { onFinishRef.current = onFinish; }, [onFinish]);
+  useEffect(() => { stateRef.current = { violations, answers }; }, [violations, answers]);
+
+  // --- NAVIGATION ---
+  const goToNext = useCallback(() => {
+    setCurrentQuestionIndex(prev => Math.min(processedQuestions.length - 1, prev + 1));
+  }, [processedQuestions.length]);
+
+  const goToPrev = useCallback(() => {
+    setCurrentQuestionIndex(prev => Math.max(0, prev - 1));
+  }, []);
+
+  const endTest = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     onFinishRef.current(stateRef.current.answers, stateRef.current.violations);
   }, []);
 
-  const handleViolation = useCallback(() => {
-    // This function will now be stable and won't cause re-renders of useEffect
-    setViolations(currentViolations => {
-        const newViolationCount = currentViolations + 1;
-        
-        if (newViolationCount >= VIOLATION_LIMIT) {
-            // Use requestAnimationFrame to prevent race conditions with alerts
-            requestAnimationFrame(() => {
-                alert(`Violation limit of ${VIOLATION_LIMIT} reached. Your test will be submitted as is.`);
-                endTest();
-            });
-        } else {
-            setAnswers(Array(test.questions.length).fill(null));
-            setCurrentQuestionIndex(0);
-            alert(`Violation ${newViolationCount}/${VIOLATION_LIMIT} detected!\n\nLeaving the test is not allowed. Your answers have been reset.`);
-        }
-        return newViolationCount;
+  // --- KEYBOARD HANDLING ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Allow navigation only if not in violation modal
+      if (!isFullScreen || showViolationModal) return; 
+      
+      switch(e.key) {
+        case 'ArrowRight': 
+          goToNext(); 
+          break;
+        case 'ArrowLeft': 
+          goToPrev(); 
+          break;
+        case 'Enter': 
+          // If last question, confirm? For now, navigate.
+          if (currentQuestionIndex < processedQuestions.length - 1) goToNext();
+          else if (confirm("Submit test?")) endTest(); 
+          break;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullScreen, showViolationModal, goToNext, goToPrev, currentQuestionIndex, processedQuestions.length, endTest]);
+
+  // --- VIOLATIONS ---
+  const triggerViolation = useCallback(() => {
+    setViolations(prev => {
+      const newCount = prev + 1;
+      if (newCount >= VIOLATION_LIMIT) { endTest(); } 
+      else { setShowViolationModal(true); }
+      return newCount;
     });
-  }, [test.questions.length, endTest]);
+  }, [endTest]);
 
   useEffect(() => {
-    const enterFullScreen = async () => {
-        try {
-            await document.documentElement.requestFullscreen();
-        } catch (error) {
-            // This alert is important for browsers that block automatic fullscreen
-            alert("Please enable fullscreen mode to start the test.");
-        }
-    };
-    enterFullScreen();
-
     const handleFullScreenChange = () => {
-      const isCurrentlyFullScreen = document.fullscreenElement != null;
-      if (!isCurrentlyFullScreen && stateRef.current.violations < VIOLATION_LIMIT) {
-        handleViolation();
-      }
-      setIsFullScreen(isCurrentlyFullScreen);
+      const isFull = document.fullscreenElement != null;
+      setIsFullScreen(isFull);
+      if (!isFull && stateRef.current.violations < VIOLATION_LIMIT) { triggerViolation(); }
     };
-    
     document.addEventListener('fullscreenchange', handleFullScreenChange);
-    // Use visibilitychange as a fallback for detecting tab switches
-    document.addEventListener('visibilitychange', handleFullScreenChange);
-
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullScreenChange);
-      document.removeEventListener('visibilitychange', handleFullScreenChange);
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
-      }
-    };
-  }, [handleViolation]);
+    return () => document.removeEventListener('fullscreenchange', handleFullScreenChange);
+  }, [triggerViolation]);
 
   useEffect(() => {
-    if (timeLeft <= 0) {
-      alert("Time's up! Submitting your test.");
-      endTest();
-      return;
-    }
-    const timer = setInterval(() => setTimeLeft(prev => prev > 0 ? prev - 1 : 0), 1000);
+    if (timeLeft <= 0) { endTest(); return; }
+    const timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
     return () => clearInterval(timer);
   }, [timeLeft, endTest]);
 
@@ -107,79 +134,208 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
     setAnswers(newAnswers);
   };
 
-  const goToNext = () => {
-    if (currentQuestionIndex < test.questions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1);
-    }
+  const toggleMarkReview = () => {
+    setMarkedForReview(prev => prev.includes(currentQuestionIndex) ? prev.filter(i => i !== currentQuestionIndex) : [...prev, currentQuestionIndex]);
   };
 
-  const goToPrev = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(prev => prev - 1);
-    }
+  const navigateTo = (index: number) => {
+    setCurrentQuestionIndex(index);
+    setIsPaletteOpen(false);
   };
-  
+
   const formattedTime = useMemo(() => {
     const minutes = Math.floor(timeLeft / 60);
     const seconds = timeLeft % 60;
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }, [timeLeft]);
 
+  const progressPercentage = Math.round((answers.filter(a => a !== null).length / processedQuestions.length) * 100);
+  const isCriticalTime = timeLeft < 300;
+  
+  if (processedQuestions.length === 0) return <div className="flex h-screen items-center justify-center">Preparing Test...</div>;
+  const currentQ = processedQuestions[currentQuestionIndex];
+
   if (!isFullScreen && violations < VIOLATION_LIMIT) {
-      return (
-          <div className="fixed inset-0 bg-gray-900 text-white flex flex-col items-center justify-center z-50">
-              <h2 className="text-3xl font-bold mb-4">Entering Secure Exam Mode</h2>
-              <p className="text-lg mb-8">This test must be taken in fullscreen.</p>
-              <button 
-                onClick={() => document.documentElement.requestFullscreen()}
-                className="py-3 px-8 bg-blue-600 hover:bg-blue-700 rounded-lg text-lg font-semibold"
-              >
-                Enter Fullscreen
-              </button>
-          </div>
-      )
+    return (
+      <div className="fixed inset-0 bg-background z-50 flex flex-col items-center justify-center p-6 text-center space-y-6">
+        <div className="p-4 bg-primary/10 rounded-full">
+          <Maximize2 className="w-12 h-12 text-primary animate-pulse" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold">Secure Exam Environment</h2>
+          <p className="text-muted-foreground max-w-md mt-2">
+            Requires fullscreen. <span className="text-destructive font-semibold">Do not switch tabs.</span>
+            <br/> Keyboard: Arrows to navigate, Enter to Next.
+          </p>
+        </div>
+        <Button size="lg" className="px-8 py-6" onClick={() => document.documentElement.requestFullscreen().catch(() => alert("Enable fullscreen."))}>
+          Start Test
+        </Button>
+      </div>
+    );
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-800 text-white p-4 sm:p-6 md:p-8 flex flex-col z-50">
-        <div className="flex justify-between items-center border-b border-gray-700 pb-4 mb-6 flex-shrink-0">
-            <div>
-                <h1 className="text-xl md:text-2xl font-bold">{test.title}</h1>
-                <p className="text-sm text-gray-400">Student: {student.name}</p>
-            </div>
-            <div className="flex items-center space-x-4">
-                <div className={`text-lg font-semibold px-3 py-1 rounded-md ${timeLeft < 60 ? 'text-red-200 bg-red-900/50' : 'text-gray-200'}`}>
-                    {formattedTime}
-                </div>
-                 <div className="text-sm text-red-400 font-medium">
-                    Violations: {violations} / {VIOLATION_LIMIT}
-                </div>
-            </div>
+    <div className="fixed inset-0 bg-background flex flex-col z-40 select-none">
+      
+      {/* HEADER */}
+      <header className="h-16 border-b flex items-center justify-between px-4 bg-card shadow-sm z-10">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => setIsPaletteOpen(true)} className="lg:hidden">
+            <Menu className="w-5 h-5" />
+          </Button>
+          <div className="hidden sm:block">
+            <h1 className="font-bold text-lg truncate max-w-[200px]">{test.title}</h1>
+            <p className="text-xs text-muted-foreground">Candidate: {student.name}</p>
+          </div>
         </div>
-        <div className="flex-grow overflow-y-auto">
-            <div className="max-w-4xl mx-auto">
-                <p className="font-semibold text-lg md:text-xl text-gray-200 mb-5">
-                  <span className="text-gray-400 mr-2">Q{currentQuestionIndex + 1}.</span>{currentQuestion.question}
-                </p>
+
+        <div className="flex items-center gap-3 md:gap-6">
+          <div className="hidden md:flex flex-col items-end w-32">
+            <div className="text-xs text-muted-foreground flex justify-between w-full mb-1">
+              <span>Progress</span>
+              <span>{progressPercentage}%</span>
+            </div>
+            <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+              <div className="h-full bg-primary transition-all duration-500" style={{ width: `${progressPercentage}%` }} />
+            </div>
+          </div>
+
+          <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-md font-mono font-bold border", isCriticalTime ? "bg-red-50 text-red-600 border-red-200 animate-pulse" : "bg-secondary text-foreground")}>
+            <Clock className="w-4 h-4" />
+            {formattedTime}
+          </div>
+
+          <div className="flex items-center gap-1 text-xs font-medium px-2 py-1 bg-destructive/10 text-destructive rounded-md">
+            <AlertTriangle className="w-3 h-3" />
+            {violations}/{VIOLATION_LIMIT}
+          </div>
+        </div>
+      </header>
+
+      {/* BODY */}
+      <div className="flex-1 flex overflow-hidden">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 flex flex-col">
+          <div className="max-w-3xl mx-auto w-full flex-1 flex flex-col justify-center space-y-6">
+            
+            <Card className="border-0 shadow-none bg-transparent md:border md:bg-card md:shadow-sm">
+              <div className="p-0 md:p-6 space-y-6">
+                <div className="flex justify-between items-start gap-4">
+                  <h2 className="text-xl md:text-2xl font-semibold leading-relaxed text-foreground">
+                    <span className="text-muted-foreground mr-2 opacity-50">#{currentQuestionIndex + 1}</span>
+                    {currentQ.question}
+                  </h2>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={toggleMarkReview}
+                    className={cn(markedForReview.includes(currentQuestionIndex) ? "text-orange-500 bg-orange-50" : "text-muted-foreground")}
+                  >
+                    <Flag className={cn("w-5 h-5", markedForReview.includes(currentQuestionIndex) && "fill-current")} />
+                  </Button>
+                </div>
+
                 <div className="space-y-3">
-                  {currentQuestion.options.map((option, index) => (
-                    <label key={index} className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${answers[currentQuestionIndex] === option ? 'bg-blue-900/50 border-blue-500' : 'bg-gray-700/50 border-gray-600 hover:border-blue-500'}`}>
-                      <input type="radio" name={`question-${currentQuestionIndex}`} value={option} checked={answers[currentQuestionIndex] === option} onChange={() => handleAnswerSelect(option)} className="h-5 w-5 text-blue-600 border-gray-300 focus:ring-blue-500 bg-gray-700"/>
-                      <span className="ml-4 text-md text-gray-200">{option}</span>
-                    </label>
-                  ))}
+                  {currentQ.options.map((option, idx) => {
+                    const isSelected = answers[currentQuestionIndex] === option;
+                    return (
+                      <div 
+                        key={idx}
+                        onClick={() => handleAnswerSelect(option)}
+                        className={cn(
+                          "relative flex items-center p-4 rounded-xl border-2 cursor-pointer transition-all hover:bg-accent/50",
+                          isSelected ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-card"
+                        )}
+                      >
+                        <div className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 transition-colors", isSelected ? "border-primary bg-primary" : "border-muted-foreground/30")}>
+                          {isSelected && <div className="w-2 h-2 bg-primary-foreground rounded-full" />}
+                        </div>
+                        <span className="text-base md:text-lg">{option}</span>
+                      </div>
+                    );
+                  })}
                 </div>
+              </div>
+            </Card>
+
+          </div>
+        </main>
+
+        <aside className={cn(
+          "fixed inset-y-0 right-0 w-80 bg-card border-l transform transition-transform duration-300 z-20 flex flex-col",
+          "lg:relative lg:translate-x-0", 
+          isPaletteOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
+        )}>
+          <div className="p-4 border-b flex justify-between items-center">
+            <h3 className="font-semibold">Question Palette</h3>
+            <Button variant="ghost" size="icon" onClick={() => setIsPaletteOpen(false)} className="lg:hidden">
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="grid grid-cols-5 gap-2">
+              {processedQuestions.map((_, idx) => {
+                const isAnswered = answers[idx] !== null;
+                const isMarked = markedForReview.includes(idx);
+                const isCurrent = currentQuestionIndex === idx;
+                
+                let btnClass = "bg-muted text-muted-foreground hover:bg-muted/80";
+                if (isAnswered) btnClass = "bg-green-100 text-green-700 border-green-200";
+                if (isMarked) btnClass = "bg-orange-100 text-orange-700 border-orange-200";
+                if (isCurrent) btnClass = "ring-2 ring-primary ring-offset-2";
+
+                return (
+                  <button key={idx} onClick={() => navigateTo(idx)} className={cn("h-10 w-10 rounded-lg text-sm font-medium transition-all flex items-center justify-center relative", btnClass)}>
+                    {idx + 1}
+                    {isMarked && <div className="absolute top-0 right-0 w-2 h-2 bg-orange-500 rounded-full translate-x-1/4 -translate-y-1/4 border border-background" />}
+                  </button>
+                );
+              })}
             </div>
+          </div>
+
+          <div className="p-4 border-t space-y-4 bg-muted/10">
+            <Button className="w-full" size="lg" onClick={endTest}>Submit Test</Button>
+          </div>
+        </aside>
+
+        {isPaletteOpen && <div className="fixed inset-0 bg-black/50 z-10 lg:hidden" onClick={() => setIsPaletteOpen(false)} />}
+      </div>
+
+      {/* FOOTER */}
+      <footer className="h-16 border-t bg-card px-4 flex items-center justify-between lg:hidden z-10">
+        <Button variant="outline" onClick={goToPrev} disabled={currentQuestionIndex === 0}>
+          <ChevronLeft className="w-4 h-4 mr-1" /> Prev
+        </Button>
+        <span className="text-sm font-medium">{currentQuestionIndex + 1} / {processedQuestions.length}</span>
+        {currentQuestionIndex === processedQuestions.length - 1 ? (
+           <Button onClick={endTest} variant="default">Submit</Button>
+        ) : (
+           <Button onClick={goToNext}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
+        )}
+      </footer>
+
+      {/* VIOLATION MODAL */}
+      {showViolationModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <Card className="w-full max-w-md border-destructive shadow-2xl animate-in zoom-in-95">
+            <div className="p-6 text-center space-y-4">
+              <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-8 h-8 text-destructive" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-destructive">Integrity Warning</h3>
+                <p className="text-muted-foreground mt-2">You left the secure window. Violation recorded.</p>
+                <p className="font-semibold mt-2">Violation {violations}/{VIOLATION_LIMIT}</p>
+              </div>
+              <Button variant="destructive" className="w-full" onClick={() => { setShowViolationModal(false); document.documentElement.requestFullscreen().catch(() => {}); }}>
+                Return to Exam
+              </Button>
+            </div>
+          </Card>
         </div>
-        <div className="mt-8 pt-4 border-t border-gray-700 flex justify-between items-center flex-shrink-0">
-             <button onClick={goToPrev} disabled={currentQuestionIndex === 0} className="py-2 px-6 border border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-200 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
-            <div className="text-sm text-gray-400">Question {currentQuestionIndex + 1} of {test.questions.length}</div>
-            {currentQuestionIndex === test.questions.length - 1 ? (
-                 <button onClick={() => endTest()} className="py-2 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">Submit Test</button>
-            ): (
-                 <button onClick={goToNext} className="py-2 px-6 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Next</button>
-            )}
-        </div>
+      )}
     </div>
   );
 };

@@ -26,17 +26,14 @@ export enum Role {
   Student = 'student',
 }
 
-// Updated View type to support the new modular architecture
 export type View = 
   | 'auth' 
   | 'emailVerification' 
   | 'idVerification' 
-  // -- New Main Views --
-  | 'dashboard'     // Stats & Charts
-  | 'content'       // Tests & Drafts
-  | 'network'       // Followers & Connections
-  | 'integrity'     // Violations & Logs
-  // -- Sub Views --
+  | 'dashboard'     
+  | 'content'       
+  | 'network'       
+  | 'integrity'     
   | 'generator' 
   | 'results' 
   | 'manualCreator' 
@@ -47,7 +44,6 @@ export type View =
   | 'notifications' 
   | 'testAnalytics' 
   | 'profile' 
-  // Legacy mappings (redirected in App.tsx)
   | 'studentPortal' 
   | 'facultyPortal' 
   | 'following' 
@@ -55,7 +51,7 @@ export type View =
   | 'connect';
 
 export interface AppUser {
-  id: string; // Firebase UID
+  id: string; 
   username: string;
   name: string;
   email: string;
@@ -66,9 +62,9 @@ export interface AppUser {
   district: string;
   facultyId: string;
   isIdVerified: boolean;
-  following: string[]; // Array of User IDs
-  followers?: string[]; // Array of User IDs
-  facultyConnections?: string[]; // Array of User IDs
+  following: string[]; 
+  followers?: string[]; 
+  facultyConnections?: string[]; 
 }
 
 export interface ConnectionRequest {
@@ -123,7 +119,11 @@ export interface Test {
   studentFieldsMode: 'default' | 'custom';
   customStudentFields: CustomFormField[];
   endDate: string | null;
-  disqualifiedStudents?: string[]; 
+  disqualifiedStudents?: string[];
+  // New Control Fields
+  shuffleQuestions?: boolean;
+  shuffleOptions?: boolean;
+  attemptLimit?: number; 
 }
 
 export interface GeneratedMcqSet {
@@ -149,9 +149,10 @@ export interface TestAttempt {
   student: Student;
   score: number;
   totalQuestions: number;
-  answers: (string | null)[];
+  answers: (string | null)[]; // User's selected answers
   date: Date;
   violations: number;
+  questions?: MCQ[]; 
 }
 
 export interface FollowRequest {

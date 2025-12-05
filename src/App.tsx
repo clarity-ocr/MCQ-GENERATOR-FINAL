@@ -26,7 +26,7 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 
-// --- Component Imports ---
+// --- Components ---
 import { Header } from './components/Header';
 import { McqGeneratorForm } from './components/McqGeneratorForm';
 import { McqList } from './components/McqList';
@@ -43,8 +43,7 @@ import { TestAnalytics } from './components/TestAnalytics';
 import { ProfilePage } from './components/ProfilePage';
 import { EmailVerification } from './components/EmailVerification';
 
-// --- New Modular Components ---
-// Ensure you have created these files based on the previous instructions
+// --- Modular Components ---
 import { Dashboard } from './components/Dashboard';
 import { ContentLibrary } from './components/ContentLibrary';
 import { NetworkCenter } from './components/NetworkCenter';
@@ -62,11 +61,13 @@ declare global {
   interface Window { jspdf: any; docx: any; }
 }
 
+// --- Persistence Helper ---
 const getInitialState = <T,>(key: string, defaultValue: T): T => {
   try {
     const item = window.localStorage.getItem(key);
     if (item) {
       return JSON.parse(item, (k, v) => {
+        // Date parser for JSON
         if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(v)) {
           return new Date(v);
         }
@@ -88,7 +89,7 @@ const App: React.FC = () => {
   const [verificationEmail, setVerificationEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // --- 2. Data State (Persisted) ---
+  // --- 2. Data State (Local/Persisted) ---
   const [userMetadata, setUserMetadata] = useState<AppUser[]>(() => getInitialState('userMetadata', []));
   const [allGeneratedMcqs, setAllGeneratedMcqs] = useState<GeneratedMcqSet[]>(() => getInitialState('allGeneratedMcqs', []));
   const [testHistory, setTestHistory] = useState<TestAttempt[]>(() => getInitialState('testHistory', []));
@@ -104,7 +105,7 @@ const App: React.FC = () => {
   const [followers, setFollowers] = useState<AppUser[]>([]);
   const [connectedFaculty, setConnectedFaculty] = useState<AppUser[]>([]);
   const [connectionRequests, setConnectionRequests] = useState<ConnectionRequest[]>([]);
-  const [testAttempts, setTestAttempts] = useState<TestAttempt[]>([]);
+  const [testAttempts, setTestAttempts] = useState<TestAttempt[]>([]); // For analytics view
   
   // --- 4. Session State ---
   const [activeTest, setActiveTest] = useState<Test | null>(null);
@@ -117,7 +118,7 @@ const App: React.FC = () => {
   useEffect(() => { try { localStorage.setItem('allGeneratedMcqs', JSON.stringify(allGeneratedMcqs)); } catch (e) {} }, [allGeneratedMcqs]);
   useEffect(() => { try { localStorage.setItem('testHistory', JSON.stringify(testHistory)); } catch (e) {} }, [testHistory]);
 
-  // --- Auth & User Sync ---
+  // --- Auth Listener ---
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       setFirebaseUser(user);
@@ -126,6 +127,7 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  // --- User Sync & Deep Link Handler ---
   useEffect(() => {
     const syncUser = async () => {
       if (!firebaseUser) {
@@ -141,201 +143,182 @@ const App: React.FC = () => {
         return;
       }
 
+      // 1. Fetch/Sync Profile
+      let userData: AppUser | null = null;
       const metadata = userMetadata.find(u => u.id === firebaseUser.uid);
+      
       if (metadata) {
-        setCurrentUser(metadata);
-        if (['auth', 'idVerification', 'emailVerification'].includes(view)) {
-          setView('dashboard'); 
+        userData = metadata;
+      } else {
+        try {
+          const docRef = doc(db, "users", firebaseUser.uid);
+          const docSnap = await getDoc(docRef);
+          
+          if (docSnap.exists()) {
+            userData = docSnap.data() as AppUser;
+            setUserMetadata(prev => [...prev.filter(u => u.id !== userData!.id), userData!]);
+          } else {
+            // No profile found? Logout to be safe or redirect to setup
+            await signOut(auth);
+            setView('auth');
+            return;
+          }
+        } catch (err) {
+          console.error("Error fetching profile:", err);
         }
-        setIsLoading(false);
-        return;
       }
 
-      try {
-        const docRef = doc(db, "users", firebaseUser.uid);
-        const docSnap = await getDoc(docRef);
+      setCurrentUser(userData);
+      setIsLoading(false);
+
+      // 2. Deep Link Handling
+      // Logic: Only run this if we have a valid user and a testId param exists
+      if (userData) {
+        const params = new URLSearchParams(window.location.search);
+        const testId = params.get('testId');
         
-        if (docSnap.exists()) {
-          const userData = docSnap.data() as AppUser;
-          setUserMetadata(prev => [...prev.filter(u => u.id !== userData.id), userData]);
-          setCurrentUser(userData);
-          if (['auth', 'idVerification', 'emailVerification'].includes(view)) {
-            setView('dashboard');
+        // If there is a testId and we aren't already in a test session
+        if (testId && !activeTest) {
+          try {
+            const testRef = doc(db, "tests", testId);
+            const testSnap = await getDoc(testRef);
+            
+            if (testSnap.exists()) {
+              const testData = testSnap.data() as Test;
+              
+              // A. Check Expiration
+              if (testData.endDate && new Date(testData.endDate) < new Date()) {
+                alert("This test has expired and is no longer available.");
+                // Clean URL
+                window.history.replaceState({}, '', window.location.pathname);
+              } 
+              // B. Check Disqualification
+              else if (testData.disqualifiedStudents?.includes(userData.id)) {
+                alert("You are disqualified from taking this test.");
+                window.history.replaceState({}, '', window.location.pathname);
+              } 
+              // C. Valid Test -> Prepare Session
+              else {
+                setActiveTest(testData);
+                // Pre-fill info based on login
+                setStudentInfo({
+                    name: userData.name,
+                    registrationNumber: userData.username, 
+                    branch: "N/A", 
+                    section: "N/A",
+                    customData: {}
+                });
+                setView('studentLogin'); 
+                // Don't clean URL yet, allow studentLogin to process, or clean now:
+                window.history.replaceState({}, '', window.location.pathname);
+              }
+            } else {
+              alert("Test not found or link is invalid.");
+              window.history.replaceState({}, '', window.location.pathname);
+            }
+          } catch (e) {
+            console.error("Deep link error:", e);
           }
-        } else {
-          await signOut(auth);
-          setView('auth');
+        } else if (['auth', 'idVerification', 'emailVerification'].includes(view)) {
+          // If no deep link, go to dashboard
+          setView('dashboard');
         }
-      } catch (err) {
-        console.error("Error fetching profile:", err);
-      } finally {
-        setIsLoading(false);
       }
     };
     syncUser();
-  }, [firebaseUser, userMetadata, view]);
+  }, [firebaseUser, userMetadata]);
 
-  // --- Real-time Listeners ---
+  // --- Real-time Listeners (Firestore) ---
   useEffect(() => {
     if (!currentUser) return;
     const unsubscribes: (() => void)[] = [];
     
-    // 1. My Published Tests
-    unsubscribes.push(onSnapshot(
-      query(collection(db, "tests"), where("facultyId", "==", currentUser.id)),
-      (s) => setPublishedTests(s.docs.map(d => d.data() as Test))
-    ));
-
-    // 2. My Notifications
-    unsubscribes.push(onSnapshot(
-      query(collection(db, "notifications"), where("studentId", "==", currentUser.id)),
-      (s) => setNotifications(s.docs.map(d => d.data() as AppNotification))
-    ));
-
-    // 3. Follow Requests
-    unsubscribes.push(onSnapshot(
-      query(collection(db, "followRequests"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")),
-      (s) => setFollowRequests(s.docs.map(d => d.data() as FollowRequest))
-    ));
-
-    // 4. Connection Requests
-    unsubscribes.push(onSnapshot(
-      query(collection(db, "connectionRequests"), where("toFacultyId", "==", currentUser.id), where("status", "==", "pending")),
-      (s) => setConnectionRequests(s.docs.map(d => d.data() as ConnectionRequest))
-    ));
-
-    // 5. Violations
-    unsubscribes.push(onSnapshot(
-      query(collection(db, "violationAlerts"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")),
-      (s) => setViolationAlerts(s.docs.map(d => d.data() as ViolationAlert))
-    ));
-
-    // 6. Ignored Tests
-    unsubscribes.push(onSnapshot(
-      query(collection(db, "notifications"), where("facultyId", "==", currentUser.id), where("status", "==", "ignored")),
-      (s) => setIgnoredByStudents(s.docs.map(d => d.data() as AppNotification))
-    ));
+    // My Content
+    unsubscribes.push(onSnapshot(query(collection(db, "tests"), where("facultyId", "==", currentUser.id)), (s) => setPublishedTests(s.docs.map(d => d.data() as Test))));
+    // My Alerts
+    unsubscribes.push(onSnapshot(query(collection(db, "notifications"), where("studentId", "==", currentUser.id)), (s) => setNotifications(s.docs.map(d => d.data() as AppNotification))));
+    // Network
+    unsubscribes.push(onSnapshot(query(collection(db, "followRequests"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")), (s) => setFollowRequests(s.docs.map(d => d.data() as FollowRequest))));
+    unsubscribes.push(onSnapshot(query(collection(db, "connectionRequests"), where("toFacultyId", "==", currentUser.id), where("status", "==", "pending")), (s) => setConnectionRequests(s.docs.map(d => d.data() as ConnectionRequest))));
+    // Integrity
+    unsubscribes.push(onSnapshot(query(collection(db, "violationAlerts"), where("facultyId", "==", currentUser.id), where("status", "==", "pending")), (s) => setViolationAlerts(s.docs.map(d => d.data() as ViolationAlert))));
+    unsubscribes.push(onSnapshot(query(collection(db, "notifications"), where("facultyId", "==", currentUser.id), where("status", "==", "ignored")), (s) => setIgnoredByStudents(s.docs.map(d => d.data() as AppNotification))));
 
     return () => unsubscribes.forEach(u => u());
   }, [currentUser]);
 
-  // --- Memoized Data ---
+  // --- Selectors ---
   const userGeneratedSets = useMemo(() => allGeneratedMcqs.filter(s => s.facultyId === currentUser?.id), [allGeneratedMcqs, currentUser]);
   const studentTestHistory = useMemo(() => testHistory.filter(h => h.studentId === currentUser?.id), [testHistory, currentUser]);
 
-  // --- Handlers (Auth) ---
-  const handleLogin = async (email: string, pass: string): Promise<string | null> => {
-    try {
-      const cred = await signInWithEmailAndPassword(auth, email, pass);
-      if (!cred.user.emailVerified) {
-        await signOut(auth);
-        return "Please verify your email.";
-      }
-      return null;
-    } catch (e: any) {
-      return "Login failed. Check credentials.";
-    }
+  // --- Auth Handlers ---
+  const handleLogin = async (e: string, p: string) => { 
+    try { 
+      const c = await signInWithEmailAndPassword(auth, e, p); 
+      return !c.user.emailVerified ? (await signOut(auth), "Please verify your email first.") : null; 
+    } catch { return "Invalid email or password."; } 
   };
 
-  const handleRegister = async (data: RegistrationData): Promise<{ success: boolean; error?: string; email?: string }> => {
-    try {
-      const q = query(collection(db, "users"), where("username", "==", data.username));
-      const snap = await getDocs(q);
-      if (!snap.empty) return { success: false, error: "Username taken." };
+  const handleRegister = async (d: RegistrationData) => { 
+      try {
+        const q = query(collection(db, "users"), where("username", "==", d.username));
+        if (!(await getDocs(q)).empty) return { success: false, error: "Username is already taken." };
+        
+        let u: FirebaseUser;
+        if (auth.currentUser) u = auth.currentUser; 
+        else { const c = await createUserWithEmailAndPassword(auth, d.email, d.password!); u = c.user; }
 
-      let user: FirebaseUser;
-      if (auth.currentUser) user = auth.currentUser;
-      else if (data.password) {
-        const cred = await createUserWithEmailAndPassword(auth, data.email, data.password);
-        user = cred.user;
-      } else return { success: false, error: "Auth error." };
-
-      const newUser: AppUser = {
-        id: user.uid,
-        username: data.username,
-        name: data.name,
-        email: user.email!,
-        role: data.role,
-        facultyId: data.username,
-        collegeName: data.collegeName,
-        country: data.country,
-        state: data.state,
-        district: data.district,
-        isIdVerified: true,
-        following: [],
-        followers: [],
-        facultyConnections: []
-      };
-
-      await setDoc(doc(db, "users", user.uid), newUser);
-      setUserMetadata(prev => [...prev, newUser]);
-
-      if (data.password) {
-        await sendEmailVerification(user);
-        await signOut(auth);
-      }
-      
-      return { success: true, email: user.email! };
-    } catch (e: any) {
-      return { success: false, error: e.message };
-    }
+        const nu: AppUser = { 
+          id: u.uid, username: d.username, name: d.name, email: u.email!, role: d.role, 
+          facultyId: d.username, collegeName: d.collegeName, country: d.country, 
+          state: d.state, district: d.district, isIdVerified: true, 
+          following: [], followers: [], facultyConnections: [] 
+        };
+        await setDoc(doc(db, "users", u.uid), nu); 
+        setUserMetadata(p => [...p, nu]);
+        
+        if (d.password) { await sendEmailVerification(u); await signOut(auth); }
+        return { success: true, email: u.email! };
+      } catch (e: any) { return { success: false, error: e.message }; }
   };
 
-  const handleGoogleSignIn = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      const res = await signInWithPopup(auth, provider);
-      const docRef = doc(db, "users", res.user.uid);
-      const snap = await getDoc(docRef);
-      return snap.exists() ? {} : { isNewUser: true, googleUser: res.user };
-    } catch (e) { return { error: "Google Auth Failed" }; }
+  const handleGoogleSignIn = async () => { 
+    try { 
+      const r = await signInWithPopup(auth, new GoogleAuthProvider()); 
+      return (await getDoc(doc(db, "users", r.user.uid))).exists() ? {} : { isNewUser: true, googleUser: r.user }; 
+    } catch { return { error: "Google Sign-In Failed" }; } 
   };
 
-  // --- Handlers (Content) ---
-  const handleGenerateMcqs = useCallback(async (formData: Omit<FormState, 'aiProvider'>) => {
-    if (!currentUser) return;
+  // --- Content Handlers ---
+  const handleGenerateMcqs = useCallback(async (data: Omit<FormState, 'aiProvider'>) => {
+    if (!currentUser) return; 
     setView('generator'); setError(null); setMcqs([]);
-    try {
-      const res = await generateMcqs(formData);
-      setMcqs(res);
-      setAllGeneratedMcqs(prev => [...prev, { id: `set-${Date.now()}`, facultyId: currentUser.id, timestamp: new Date(), mcqs: res }]);
-      setView('results');
+    try { 
+      const res = await generateMcqs(data); 
+      setAllGeneratedMcqs(p => [...p, { id: `set-${Date.now()}`, facultyId: currentUser.id, timestamp: new Date(), mcqs: res }]); 
+      setMcqs(res); setView('results'); 
     } catch (e: any) { setError(e.message); setView('results'); }
   }, [currentUser]);
 
-  const handlePublishTest = async (id: string, title: string, duration: number, end: string|null, mode: any, fields: any) => {
+  // Publish with all settings
+  const handlePublishTest = async (id: string, title: string, duration: number, end: string|null, mode: any, fields: any, shuffleQ: boolean, shuffleO: boolean, limit: number) => {
      if (!currentUser) return;
-     const set = allGeneratedMcqs.find(s => s.id === id);
-     if (!set) return;
+     const set = allGeneratedMcqs.find(s => s.id === id); if (!set) return;
+     
      const newTest: Test = { 
         id: doc(collection(db, "tests")).id, 
         facultyId: currentUser.id, 
-        title, 
-        durationMinutes: duration, 
-        questions: set.mcqs, 
-        endDate: end, 
-        studentFieldsMode: mode, 
-        customStudentFields: fields, 
-        disqualifiedStudents: [] 
+        title, durationMinutes: duration, questions: set.mcqs, endDate: end, 
+        studentFieldsMode: mode, customStudentFields: fields, disqualifiedStudents: [],
+        shuffleQuestions: shuffleQ, shuffleOptions: shuffleO, attemptLimit: limit 
      };
      await setDoc(doc(db, "tests", newTest.id), newTest);
      
-     // Notify Followers
-     if (currentUser.followers && currentUser.followers.length > 0) {
-        const q = query(collection(db, "users"), where("following", "array-contains", currentUser.id));
-        const snap = await getDocs(q);
-        const batch = snap.docs.map(d => {
-            const student = d.data() as AppUser;
+     // Notify followers
+     if (currentUser.followers?.length) {
+        const batch = currentUser.followers.map(async (fid) => {
             const ref = doc(collection(db, "notifications"));
-            return setDoc(ref, {
-                id: ref.id,
-                studentId: student.id,
-                studentEmail: student.email,
-                facultyId: currentUser.id,
-                facultyName: currentUser.name,
-                test: newTest,
-                status: 'new'
-            });
+            await setDoc(ref, { id: ref.id, studentId: fid, studentEmail: "Follower", facultyId: currentUser.id, facultyName: currentUser.name, test: newTest, status: 'new' });
         });
         await Promise.all(batch);
      }
@@ -343,195 +326,153 @@ const App: React.FC = () => {
   };
 
   const handleRevokeTest = async (testId: string) => {
-    if (!confirm("Delete this test?")) return;
+    if (!confirm("Are you sure? This action cannot be undone.")) return;
     try {
         await deleteDoc(doc(db, "tests", testId));
         const q = query(collection(db, "notifications"), where("test.id", "==", testId));
-        const snap = await getDocs(q);
-        await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+        (await getDocs(q)).docs.forEach(d => deleteDoc(d.ref));
     } catch (e) { console.error(e); }
   };
 
-  // --- Handlers (Social) ---
+  // --- Social Handlers ---
   const handleSendFollowRequest = async (targetUsername: string) => {
     if (!currentUser) return;
-    try {
-        const q = query(collection(db, "users"), where("username", "==", targetUsername));
-        const snap = await getDocs(q);
-        if (snap.empty) { alert("User not found."); return; }
-        const targetUser = snap.docs[0].data() as AppUser;
-        if (targetUser.id === currentUser.id) { alert("Cannot follow self."); return; }
+    const q = query(collection(db, "users"), where("username", "==", targetUsername));
+    const snap = await getDocs(q);
+    if (snap.empty) { alert("User not found."); return; }
+    const target = snap.docs[0].data() as AppUser;
+    if (target.id === currentUser.id) { alert("You cannot follow yourself."); return; }
+    
+    // Check pending requests
+    const qReq = query(collection(db, "followRequests"), where("studentId", "==", currentUser.id), where("facultyId", "==", target.id));
+    if (!(await getDocs(qReq)).empty) { alert("Request already pending."); return; }
+    
+    // Check if already following
+    if (currentUser.following.includes(target.id)) { alert("You are already following this user."); return; }
 
-        const qReq = query(collection(db, "followRequests"), where("studentId", "==", currentUser.id), where("facultyId", "==", targetUser.id));
-        const snapReq = await getDocs(qReq);
-        if (!snapReq.empty) { alert("Request pending or already following."); return; }
-
-        const ref = doc(collection(db, "followRequests"));
-        await setDoc(ref, {
-            id: ref.id,
-            studentId: currentUser.id,
-            studentEmail: currentUser.email,
-            facultyId: targetUser.id,
-            status: 'pending'
-        });
-        alert(`Request sent to @${targetUsername}`);
-    } catch (e) { console.error(e); }
+    await setDoc(doc(collection(db, "followRequests")), { id: doc(collection(db, "followRequests")).id, studentId: currentUser.id, studentEmail: currentUser.email, facultyId: target.id, status: 'pending' });
+    alert("Follow request sent!");
   };
 
   const handleFollowRequestResponse = async (rid: string, status: 'accepted'|'rejected') => {
-    try {
-        const ref = doc(db, "followRequests", rid);
-        await updateDoc(ref, { status });
-        if (status === 'accepted') {
-            const snap = await getDoc(ref);
-            const data = snap.data() as FollowRequest;
-            await updateDoc(doc(db, "users", data.studentId), { following: arrayUnion(data.facultyId) });
-            await updateDoc(doc(db, "users", data.facultyId), { followers: arrayUnion(data.studentId) });
-        }
-    } catch (e) { console.error(e); }
+    const ref = doc(db, "followRequests", rid); 
+    await updateDoc(ref, { status });
+    if (status === 'accepted') {
+        const d = (await getDoc(ref)).data() as FollowRequest;
+        await updateDoc(doc(db, "users", d.studentId), { following: arrayUnion(d.facultyId) });
+        await updateDoc(doc(db, "users", d.facultyId), { followers: arrayUnion(d.studentId) });
+    }
   };
 
   const handleAcceptConnection = async (rid: string) => {
-      const req = connectionRequests.find(r => r.id === rid);
-      if (!req) return;
+      const req = connectionRequests.find(r => r.id === rid); if (!req) return;
       await updateDoc(doc(db, "connectionRequests", rid), { status: 'accepted' });
       await updateDoc(doc(db, "users", req.fromFacultyId), { facultyConnections: arrayUnion(req.toFacultyId) });
       await updateDoc(doc(db, "users", req.toFacultyId), { facultyConnections: arrayUnion(req.fromFacultyId) });
   };
 
-  const handleRejectConnection = async (rid: string) => {
-      await updateDoc(doc(db, "connectionRequests", rid), { status: 'rejected' });
-  };
+  const handleRejectConnection = async (rid: string) => { await updateDoc(doc(db, "connectionRequests", rid), { status: 'rejected' }); };
 
-  // --- Navigation & Helper ---
+  // --- Navigation ---
   const handleNavigate = (target: View) => {
-      setError(null);
-      setIsLoading(true);
+      setError(null); setIsLoading(true);
       setTimeout(() => { setView(target); setIsLoading(false); }, 200);
-
-      // Data refresh based on target view
       if (target === 'network' && currentUser) {
-         if (currentUser.following.length > 0) {
-             getDocs(query(collection(db, "users"), where("id", "in", currentUser.following)))
-                .then(s => setFollowingList(s.docs.map(d => d.data() as AppUser)));
-         }
-         if (currentUser.followers && currentUser.followers.length > 0) {
-            getDocs(query(collection(db, "users"), where("id", "in", currentUser.followers)))
-                .then(s => setFollowers(s.docs.map(d => d.data() as AppUser)));
-          }
+         // Refresh social lists
+         if (currentUser.following.length) getDocs(query(collection(db, "users"), where("id", "in", currentUser.following))).then(s => setFollowingList(s.docs.map(d => d.data() as AppUser)));
+         if (currentUser.followers && currentUser.followers.length) getDocs(query(collection(db, "users"), where("id", "in", currentUser.followers))).then(s => setFollowers(s.docs.map(d => d.data() as AppUser)));
       }
   };
 
-  const handleStartTest = async (test: Test, notificationId: string) => {
-    if (test.disqualifiedStudents?.includes(currentUser?.id || '')) {
-        alert("You are disqualified from this test.");
-        return;
+  // --- Test Execution Handlers ---
+  const handleStartTest = async (test: Test, notificationId?: string) => {
+    if (!currentUser) { alert("Must be logged in."); return; }
+    
+    // 1. Check Expiration
+    if (test.endDate && new Date(test.endDate) < new Date()) { alert("Test has expired."); return; }
+    
+    // 2. Check Disqualification
+    if (test.disqualifiedStudents?.includes(currentUser.id)) { alert("You are disqualified."); return; }
+    
+    // 3. Check Limits (Fetch from Firestore for accuracy)
+    if (test.attemptLimit && test.attemptLimit > 0) {
+        const attemptsQ = query(collection(db, "testAttempts"), where("testId", "==", test.id), where("studentId", "==", currentUser.id));
+        const count = (await getDocs(attemptsQ)).size;
+        if (count >= test.attemptLimit) { alert(`Limit reached (${test.attemptLimit} attempts).`); return; }
     }
-    await deleteDoc(doc(db, "notifications", notificationId));
+
+    if (notificationId) await deleteDoc(doc(db, "notifications", notificationId));
+    
     setActiveTest(test);
-    setView('studentLogin');
+    // Use logged in user data as Student Info
+    setStudentInfo({
+        name: currentUser.name,
+        registrationNumber: currentUser.username, 
+        branch: "N/A", section: "N/A", customData: {}
+    });
+    setView('studentLogin'); 
   };
 
   const handleTestFinish = async (answers: (string|null)[], violations: number) => {
       if (!activeTest || !currentUser || !studentInfo) return;
       const score = activeTest.questions.reduce((acc, q, i) => q.answer === answers[i] ? acc + 1 : acc, 0);
-      const attempt: TestAttempt = {
-          id: doc(collection(db, "testAttempts")).id,
-          testId: activeTest.id,
-          studentId: currentUser.id,
-          testTitle: activeTest.title,
-          student: studentInfo,
-          score,
-          totalQuestions: activeTest.questions.length,
-          answers,
-          date: new Date(),
-          violations
+      
+      const attempt: TestAttempt = { 
+          id: doc(collection(db, "testAttempts")).id, testId: activeTest.id, studentId: currentUser.id, testTitle: activeTest.title, student: studentInfo, score, totalQuestions: activeTest.questions.length, answers, date: new Date(), violations,
+          questions: activeTest.questions // SNAPSHOT QUESTIONS FOR HISTORY
       };
+      
       await setDoc(doc(db, "testAttempts", attempt.id), attempt);
-      setTestHistory(prev => [...prev, attempt]);
+      setTestHistory(p => [...p, attempt]);
       
       if (violations >= 3) {
           await updateDoc(doc(db, "tests", activeTest.id), { disqualifiedStudents: arrayUnion(currentUser.id) });
-          await setDoc(doc(collection(db, "violationAlerts")), {
-              id: doc(collection(db, "violationAlerts")).id,
-              studentId: currentUser.id,
-              studentEmail: currentUser.email,
-              facultyId: activeTest.facultyId,
-              testId: activeTest.id,
-              testTitle: activeTest.title,
-              timestamp: new Date().toISOString(),
-              status: 'pending'
-          });
+          await setDoc(doc(collection(db, "violationAlerts")), { id: doc(collection(db, "violationAlerts")).id, studentId: currentUser.id, studentEmail: currentUser.email, facultyId: activeTest.facultyId, testId: activeTest.id, testTitle: activeTest.title, timestamp: new Date().toISOString(), status: 'pending' });
       }
-      setLatestTestResult(attempt);
-      setActiveTest(null);
-      setStudentInfo(null);
-      setView('testResults');
+      setLatestTestResult(attempt); setActiveTest(null); setView('testResults');
   };
 
   // --- Render ---
   const renderContent = () => {
-    if (isLoading) return <div className="flex h-screen items-center justify-center"><LoadingSpinner /></div>;
-    
-    // Auth Views
+    if (isLoading) return <LoadingSpinner />;
     if (view === 'emailVerification') return <EmailVerification email={verificationEmail} onLoginNavigate={() => setView('auth')} />;
     if (!currentUser) return <AuthPortal onLogin={handleLogin} onRegister={handleRegister} onGoogleSignIn={handleGoogleSignIn} onRegistrationSuccess={(e) => { setVerificationEmail(e); setView('emailVerification'); }} />;
 
-    // Main Routes
     switch (view) {
-      case 'studentPortal': // Legacy Redirect
-      case 'facultyPortal': // Legacy Redirect
-      case 'dashboard':
+      case 'dashboard': 
+      case 'studentPortal': // Compat
+      case 'facultyPortal': // Compat
         return <Dashboard 
             user={currentUser} 
             publishedTests={publishedTests} 
-            generatedSets={userGeneratedSets}
-            testAttempts={testAttempts}
-            followersCount={currentUser.followers?.length || 0}
-            followingCount={currentUser.following.length}
-            onNavigate={handleNavigate}
+            generatedSets={userGeneratedSets} 
+            testAttempts={testAttempts} 
+            followersCount={currentUser.followers?.length || 0} 
+            followingCount={currentUser.following.length} 
+            onNavigate={handleNavigate} 
         />;
 
-      case 'content':
-        return <ContentLibrary
-            generatedSets={userGeneratedSets}
-            publishedTests={publishedTests}
-            onPublishTest={handlePublishTest}
-            onRevokeTest={handleRevokeTest}
-            onViewTestAnalytics={(t) => { setAnalyticsTest(t); setView('testAnalytics'); }}
-        />;
-
-      case 'network':
-        return <NetworkCenter
-            followRequests={followRequests}
-            connectionRequests={connectionRequests}
-            followers={followers}
-            following={followingList}
-            onSendFollowRequest={handleSendFollowRequest}
-            onFollowRequestResponse={handleFollowRequestResponse}
-            onAcceptConnection={handleAcceptConnection}
-            onRejectConnection={handleRejectConnection}
-        />;
-
-      case 'integrity':
-        return <IntegrityCenter
-            violationAlerts={violationAlerts}
-            ignoredNotifications={ignoredByStudents}
-            onGrantReattempt={async (aid) => { /* logic */ }}
-        />;
-
+      case 'content': return <ContentLibrary generatedSets={userGeneratedSets} publishedTests={publishedTests} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onViewTestAnalytics={(t) => { setAnalyticsTest(t); setView('testAnalytics'); }} onNavigate={handleNavigate} />;
+      case 'network': return <NetworkCenter followRequests={followRequests} connectionRequests={connectionRequests} followers={followers} following={followingList} onSendFollowRequest={handleSendFollowRequest} onFollowRequestResponse={handleFollowRequestResponse} onAcceptConnection={handleAcceptConnection} onRejectConnection={handleRejectConnection} />;
+      case 'integrity': return <IntegrityCenter violationAlerts={violationAlerts} ignoredNotifications={ignoredByStudents} onGrantReattempt={async () => {}} />;
       case 'profile': return <ProfilePage user={currentUser} onLogout={() => { signOut(auth); setView('auth'); }} onBack={() => handleNavigate('dashboard')} />;
+      
+      // Test execution & results
+      case 'testResults': 
+        // Logic: prefer latest result questions (snapshot), then active test (just finished), then lookup from published
+        const questionsToShow = latestTestResult?.questions || activeTest?.questions || publishedTests.find(t => t.id === latestTestResult?.testId)?.questions || [];
+        return latestTestResult ? <TestResults result={latestTestResult} questions={questionsToShow} onNavigate={handleNavigate} /> : <ErrorMessage message="No result found." />;
+      
+      case 'studentLogin': return activeTest ? <StudentLogin test={activeTest} onLogin={(info) => { setStudentInfo(info); setView('test'); }} /> : <ErrorMessage message="Test session expired." />;
+      case 'test': return (activeTest && studentInfo) ? <TestPage test={activeTest} student={studentInfo} onFinish={handleTestFinish} /> : <ErrorMessage message="Invalid Test Session." />;
+      
+      // Utils
+      case 'notifications': return <Notifications notifications={notifications} onStartTest={handleStartTest} onIgnoreTest={async (nid) => { await updateDoc(doc(db, "notifications", nid), { status: 'ignored' }); }} onBack={() => handleNavigate('dashboard')} />;
+      case 'testHistory': return <TestHistory history={studentTestHistory} onNavigateBack={() => handleNavigate('dashboard')} onViewResult={(attempt) => { setLatestTestResult(attempt); setView('testResults'); }} />;
+      case 'testAnalytics': return analyticsTest ? <TestAnalytics test={analyticsTest} attempts={testAttempts} onBack={() => handleNavigate('content')} /> : <ErrorMessage message="Select a test." />;
       case 'generator': return <McqGeneratorForm onGenerate={handleGenerateMcqs} isLoading={false} />;
       case 'results': return <div className="grid grid-cols-1 lg:grid-cols-2 gap-8"><McqGeneratorForm onGenerate={handleGenerateMcqs} isLoading={false} /><div className="bg-white p-6 rounded-lg shadow">{error ? <ErrorMessage message={error} /> : <McqList mcqs={mcqs} />}</div></div>;
       case 'manualCreator': return <ManualMcqCreator onSaveSet={(mcqs) => { /* save logic */ }} onExportPDF={()=>{}} onExportWord={()=>{}} />;
-      case 'test': return (activeTest && studentInfo) ? <TestPage test={activeTest} student={studentInfo} onFinish={handleTestFinish} /> : <ErrorMessage message="Invalid Test" />;
-      case 'studentLogin': return activeTest ? <StudentLogin test={activeTest} onLogin={(info) => { setStudentInfo(info); setView('test'); }} /> : <ErrorMessage message="No active test" />;
-      case 'testResults': return latestTestResult ? <TestResults result={latestTestResult} onNavigate={handleNavigate} /> : <ErrorMessage message="Result not found" />;
-      
-      // Sub-views
-      case 'notifications': return <Notifications notifications={notifications} onStartTest={handleStartTest} onIgnoreTest={async (nid) => { await updateDoc(doc(db, "notifications", nid), { status: 'ignored' }); }} onBack={() => handleNavigate('dashboard')} />;
-      case 'testHistory': return <TestHistory history={studentTestHistory} onNavigateBack={() => handleNavigate('dashboard')} />;
-      case 'testAnalytics': return analyticsTest ? <TestAnalytics test={analyticsTest} attempts={testAttempts} onBack={() => handleNavigate('content')} /> : <ErrorMessage message="Select a test" />;
       
       default: return <div className="flex h-screen items-center justify-center"><LoadingSpinner /></div>;
     }
@@ -542,9 +483,7 @@ const App: React.FC = () => {
       {['auth', 'emailVerification', 'test', 'studentLogin'].includes(view) ? renderContent() : (
         <>
           <Header user={currentUser} activeView={view} onNavigate={handleNavigate} onLogout={() => { signOut(auth); setView('auth'); }} />
-          <main className="container mx-auto p-4 md:p-8 animate-in fade-in duration-300">
-            {renderContent()}
-          </main>
+          <main className="container mx-auto p-4 md:p-8 animate-in fade-in duration-300">{renderContent()}</main>
         </>
       )}
     </div>
