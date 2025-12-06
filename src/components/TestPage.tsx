@@ -9,7 +9,9 @@ import {
   ChevronRight, 
   Menu, 
   X, 
-  Maximize2
+  Maximize2,
+  ShieldAlert,
+  CheckCircle2
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
@@ -19,12 +21,12 @@ import { cn } from '../lib/utils';
 interface TestPageProps {
   test: Test;
   student: Student;
-  onFinish: (answers: (string | null)[], violations: number) => void;
+  // UPDATED: Now accepts the shuffled questions list for storage
+  onFinish: (answers: (string | null)[], violations: number, usedQuestions: MCQ[]) => void;
 }
 
 const VIOLATION_LIMIT = 3;
 
-// Fisher-Yates Shuffle
 function shuffleArray<T>(array: T[]): T[] {
   const arr = [...array];
   for (let i = arr.length - 1; i > 0; i--) {
@@ -35,7 +37,7 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) => {
-  // --- STATE ---
+  const [hasStarted, setHasStarted] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<(string | null)[]>(() => Array(test.questions.length).fill(null));
   const [markedForReview, setMarkedForReview] = useState<number[]>([]);
@@ -45,9 +47,10 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [showViolationModal, setShowViolationModal] = useState(false);
 
-  // --- SHUFFLING ---
+  // Store the shuffled version of questions for this session
   const [processedQuestions, setProcessedQuestions] = useState<MCQ[]>([]);
 
+  // Init Shuffle (Run once on mount/test change)
   useEffect(() => {
     let qs = [...test.questions];
     if (test.shuffleQuestions) qs = shuffleArray(qs);
@@ -57,14 +60,14 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
     setProcessedQuestions(qs);
   }, [test]);
 
-  // --- REFS ---
   const onFinishRef = useRef(onFinish);
-  const stateRef = useRef({ violations, answers });
+  const stateRef = useRef({ violations, answers, processedQuestions });
 
   useEffect(() => { onFinishRef.current = onFinish; }, [onFinish]);
-  useEffect(() => { stateRef.current = { violations, answers }; }, [violations, answers]);
+  useEffect(() => { 
+      stateRef.current = { violations, answers, processedQuestions }; 
+  }, [violations, answers, processedQuestions]);
 
-  // --- NAVIGATION ---
   const goToNext = useCallback(() => {
     setCurrentQuestionIndex(prev => Math.min(processedQuestions.length - 1, prev + 1));
   }, [processedQuestions.length]);
@@ -74,25 +77,32 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
   }, []);
 
   const endTest = useCallback(() => {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    onFinishRef.current(stateRef.current.answers, stateRef.current.violations);
-  }, []);
+    if (test.allowSkip === false) { 
+        const hasUnanswered = stateRef.current.answers.some(a => a === null);
+        if (hasUnanswered) {
+            alert("Skipping is disabled. You must answer all questions to submit.");
+            return;
+        }
+    }
 
-  // --- KEYBOARD HANDLING ---
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    
+    // UPDATED: Pass the specific shuffled questions used in this attempt
+    onFinishRef.current(
+        stateRef.current.answers, 
+        stateRef.current.violations, 
+        stateRef.current.processedQuestions
+    );
+  }, [test.allowSkip]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Allow navigation only if not in violation modal
-      if (!isFullScreen || showViolationModal) return; 
+      if (!isFullScreen || showViolationModal || !hasStarted) return; 
       
       switch(e.key) {
-        case 'ArrowRight': 
-          goToNext(); 
-          break;
-        case 'ArrowLeft': 
-          goToPrev(); 
-          break;
+        case 'ArrowRight': goToNext(); break;
+        case 'ArrowLeft': goToPrev(); break;
         case 'Enter': 
-          // If last question, confirm? For now, navigate.
           if (currentQuestionIndex < processedQuestions.length - 1) goToNext();
           else if (confirm("Submit test?")) endTest(); 
           break;
@@ -100,33 +110,63 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullScreen, showViolationModal, goToNext, goToPrev, currentQuestionIndex, processedQuestions.length, endTest]);
+  }, [isFullScreen, showViolationModal, hasStarted, goToNext, goToPrev, currentQuestionIndex, processedQuestions.length, endTest]);
 
-  // --- VIOLATIONS ---
   const triggerViolation = useCallback(() => {
     setViolations(prev => {
       const newCount = prev + 1;
-      if (newCount >= VIOLATION_LIMIT) { endTest(); } 
-      else { setShowViolationModal(true); }
+      setAnswers(Array(test.questions.length).fill(null)); // Clear answers penalty
+      
+      if (newCount >= VIOLATION_LIMIT) { 
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        onFinishRef.current(
+            Array(test.questions.length).fill(null), 
+            newCount, 
+            stateRef.current.processedQuestions
+        ); 
+      } else { 
+        setShowViolationModal(true); 
+      }
       return newCount;
     });
-  }, [endTest]);
+  }, [test.questions.length]);
 
   useEffect(() => {
+    if (!hasStarted) return; 
+
     const handleFullScreenChange = () => {
       const isFull = document.fullscreenElement != null;
       setIsFullScreen(isFull);
-      if (!isFull && stateRef.current.violations < VIOLATION_LIMIT) { triggerViolation(); }
+      if (!isFull && stateRef.current.violations < VIOLATION_LIMIT) { 
+        triggerViolation(); 
+      }
     };
+
+    const handleVisibilityChange = () => {
+        if (document.hidden && stateRef.current.violations < VIOLATION_LIMIT) {
+            triggerViolation();
+        }
+    };
+
     document.addEventListener('fullscreenchange', handleFullScreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullScreenChange);
-  }, [triggerViolation]);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+        document.removeEventListener('fullscreenchange', handleFullScreenChange);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [triggerViolation, hasStarted]);
 
   useEffect(() => {
-    if (timeLeft <= 0) { endTest(); return; }
+    if (!hasStarted) return;
+    if (timeLeft <= 0) { 
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        onFinishRef.current(stateRef.current.answers, stateRef.current.violations, stateRef.current.processedQuestions);
+        return; 
+    }
     const timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
     return () => clearInterval(timer);
-  }, [timeLeft, endTest]);
+  }, [timeLeft, hasStarted]);
 
   const handleAnswerSelect = (option: string) => {
     const newAnswers = [...answers];
@@ -153,32 +193,85 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
   const isCriticalTime = timeLeft < 300;
   
   if (processedQuestions.length === 0) return <div className="flex h-screen items-center justify-center">Preparing Test...</div>;
-  const currentQ = processedQuestions[currentQuestionIndex];
 
-  if (!isFullScreen && violations < VIOLATION_LIMIT) {
+  if (!hasStarted) {
+    return (
+        <div className="fixed inset-0 bg-background z-50 flex flex-col items-center justify-center p-4">
+            <Card className="max-w-2xl w-full shadow-xl">
+                <div className="p-8 space-y-6">
+                    <div className="text-center space-y-2">
+                        <h1 className="text-3xl font-bold">{test.title}</h1>
+                        <p className="text-muted-foreground">Instructions & Integrity Rules</p>
+                    </div>
+
+                    <div className="space-y-4 bg-muted/30 p-6 rounded-lg border">
+                        <div className="flex items-start gap-3">
+                            <Clock className="w-5 h-5 text-primary mt-0.5" />
+                            <div>
+                                <h3 className="font-semibold">Timed Exam</h3>
+                                <p className="text-sm text-muted-foreground">You have {test.durationMinutes} minutes.</p>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-3">
+                            <CheckCircle2 className="w-5 h-5 text-primary mt-0.5" />
+                            <div>
+                                <h3 className="font-semibold">Question Policy</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    {test.allowSkip === false ? "Strict Mode: Answer ALL questions." : "Standard Mode: Skipping allowed."}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-3">
+                            <ShieldAlert className="w-5 h-5 text-destructive mt-0.5" />
+                            <div>
+                                <h3 className="font-semibold text-destructive">Strict Violation Policy</h3>
+                                <p className="text-sm text-destructive/80">
+                                    Violations (tab switch, exit fullscreen) will <strong>reset all answers</strong>.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <Button 
+                        size="lg" 
+                        className="w-full text-lg h-12" 
+                        onClick={() => {
+                            document.documentElement.requestFullscreen().then(() => {
+                                setHasStarted(true);
+                            }).catch(() => alert("Fullscreen permission denied."));
+                        }}
+                    >
+                        I Agree & Start Test
+                    </Button>
+                </div>
+            </Card>
+        </div>
+    );
+  }
+
+  if (!isFullScreen && violations < VIOLATION_LIMIT && !showViolationModal) {
     return (
       <div className="fixed inset-0 bg-background z-50 flex flex-col items-center justify-center p-6 text-center space-y-6">
-        <div className="p-4 bg-primary/10 rounded-full">
-          <Maximize2 className="w-12 h-12 text-primary animate-pulse" />
+        <div className="p-4 bg-destructive/10 rounded-full animate-pulse">
+          <Maximize2 className="w-12 h-12 text-destructive" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold">Secure Exam Environment</h2>
+          <h2 className="text-2xl font-bold text-destructive">Fullscreen Required</h2>
           <p className="text-muted-foreground max-w-md mt-2">
-            Requires fullscreen. <span className="text-destructive font-semibold">Do not switch tabs.</span>
-            <br/> Keyboard: Arrows to navigate, Enter to Next.
+            Return to fullscreen to continue.
           </p>
         </div>
-        <Button size="lg" className="px-8 py-6" onClick={() => document.documentElement.requestFullscreen().catch(() => alert("Enable fullscreen."))}>
-          Start Test
+        <Button size="lg" onClick={() => document.documentElement.requestFullscreen().catch(() => {})}>
+          Return to Fullscreen
         </Button>
       </div>
     );
   }
 
+  const currentQ = processedQuestions[currentQuestionIndex];
+
   return (
     <div className="fixed inset-0 bg-background flex flex-col z-40 select-none">
-      
-      {/* HEADER */}
       <header className="h-16 border-b flex items-center justify-between px-4 bg-card shadow-sm z-10">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => setIsPaletteOpen(true)} className="lg:hidden">
@@ -206,18 +299,16 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
             {formattedTime}
           </div>
 
-          <div className="flex items-center gap-1 text-xs font-medium px-2 py-1 bg-destructive/10 text-destructive rounded-md">
+          <div className="flex items-center gap-1 text-xs font-medium px-2 py-1 bg-destructive/10 text-destructive rounded-md border border-destructive/20">
             <AlertTriangle className="w-3 h-3" />
             {violations}/{VIOLATION_LIMIT}
           </div>
         </div>
       </header>
 
-      {/* BODY */}
       <div className="flex-1 flex overflow-hidden">
         <main className="flex-1 overflow-y-auto p-4 md:p-8 flex flex-col">
           <div className="max-w-3xl mx-auto w-full flex-1 flex flex-col justify-center space-y-6">
-            
             <Card className="border-0 shadow-none bg-transparent md:border md:bg-card md:shadow-sm">
               <div className="p-0 md:p-6 space-y-6">
                 <div className="flex justify-between items-start gap-4">
@@ -257,7 +348,6 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
                 </div>
               </div>
             </Card>
-
           </div>
         </main>
 
@@ -303,20 +393,6 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
         {isPaletteOpen && <div className="fixed inset-0 bg-black/50 z-10 lg:hidden" onClick={() => setIsPaletteOpen(false)} />}
       </div>
 
-      {/* FOOTER */}
-      <footer className="h-16 border-t bg-card px-4 flex items-center justify-between lg:hidden z-10">
-        <Button variant="outline" onClick={goToPrev} disabled={currentQuestionIndex === 0}>
-          <ChevronLeft className="w-4 h-4 mr-1" /> Prev
-        </Button>
-        <span className="text-sm font-medium">{currentQuestionIndex + 1} / {processedQuestions.length}</span>
-        {currentQuestionIndex === processedQuestions.length - 1 ? (
-           <Button onClick={endTest} variant="default">Submit</Button>
-        ) : (
-           <Button onClick={goToNext}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
-        )}
-      </footer>
-
-      {/* VIOLATION MODAL */}
       {showViolationModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
           <Card className="w-full max-w-md border-destructive shadow-2xl animate-in zoom-in-95">
@@ -325,12 +401,17 @@ export const TestPage: React.FC<TestPageProps> = ({ test, student, onFinish }) =
                 <AlertTriangle className="w-8 h-8 text-destructive" />
               </div>
               <div>
-                <h3 className="text-xl font-bold text-destructive">Integrity Warning</h3>
-                <p className="text-muted-foreground mt-2">You left the secure window. Violation recorded.</p>
-                <p className="font-semibold mt-2">Violation {violations}/{VIOLATION_LIMIT}</p>
+                <h3 className="text-xl font-bold text-destructive">Integrity Violation</h3>
+                <p className="text-muted-foreground mt-2">
+                    You navigated away from the test window.
+                </p>
+                <div className="mt-4 p-3 bg-destructive/5 border border-destructive/20 rounded-lg text-sm text-destructive font-semibold">
+                    PENALTY APPLIED: Answers reset.
+                </div>
+                <p className="font-semibold mt-4">Violation Count: {violations}/{VIOLATION_LIMIT}</p>
               </div>
               <Button variant="destructive" className="w-full" onClick={() => { setShowViolationModal(false); document.documentElement.requestFullscreen().catch(() => {}); }}>
-                Return to Exam
+                Continue
               </Button>
             </div>
           </Card>

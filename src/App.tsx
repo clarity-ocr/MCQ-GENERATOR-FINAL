@@ -13,7 +13,6 @@ import {
   arrayUnion,
   onSnapshot,
   deleteDoc,
-  arrayRemove,
   getDoc
 } from "firebase/firestore";
 import {
@@ -53,7 +52,7 @@ import { IntegrityCenter } from './components/IntegrityCenter';
 import { Role, View } from './types';
 import type {
   FormState, MCQ, Test, GeneratedMcqSet, Student, TestAttempt, FollowRequest,
-  AppNotification, AppUser, CustomFormField, ViolationAlert, ConnectionRequest
+  AppNotification, AppUser, ViolationAlert, ConnectionRequest
 } from './types';
 import { generateMcqs } from './services/geminiService';
 
@@ -172,13 +171,12 @@ const App: React.FC = () => {
       setIsLoading(false);
 
       // 2. Deep Link Handling
-      // Logic: Only run this if we have a valid user and a testId param exists
       if (userData) {
         const params = new URLSearchParams(window.location.search);
         const testId = params.get('testId');
         
         // If there is a testId and we aren't already in a test session
-        if (testId && !activeTest) {
+        if (testId && (!activeTest || activeTest.id !== testId)) {
           try {
             const testRef = doc(db, "tests", testId);
             const testSnap = await getDoc(testRef);
@@ -301,7 +299,7 @@ const App: React.FC = () => {
   }, [currentUser]);
 
   // Publish with all settings
-  const handlePublishTest = async (id: string, title: string, duration: number, end: string|null, mode: any, fields: any, shuffleQ: boolean, shuffleO: boolean, limit: number) => {
+  const handlePublishTest = async (id: string, title: string, duration: number, end: string|null, mode: any, fields: any, shuffleQ: boolean, shuffleO: boolean, limit: number, allowSkip: boolean) => {
      if (!currentUser) return;
      const set = allGeneratedMcqs.find(s => s.id === id); if (!set) return;
      
@@ -310,7 +308,7 @@ const App: React.FC = () => {
         facultyId: currentUser.id, 
         title, durationMinutes: duration, questions: set.mcqs, endDate: end, 
         studentFieldsMode: mode, customStudentFields: fields, disqualifiedStudents: [],
-        shuffleQuestions: shuffleQ, shuffleOptions: shuffleO, attemptLimit: limit 
+        shuffleQuestions: shuffleQ, shuffleOptions: shuffleO, attemptLimit: limit, allowSkip 
      };
      await setDoc(doc(db, "tests", newTest.id), newTest);
      
@@ -322,7 +320,7 @@ const App: React.FC = () => {
         });
         await Promise.all(batch);
      }
-     setView('dashboard');
+     // Removed auto-navigation to dashboard to keep user context
   };
 
   const handleRevokeTest = async (testId: string) => {
@@ -413,17 +411,36 @@ const App: React.FC = () => {
     setView('studentLogin'); 
   };
 
-  const handleTestFinish = async (answers: (string|null)[], violations: number) => {
+  // UPDATED handleTestFinish: Accepts 'usedQuestions' to reflect the exact state (shuffled order) the user saw
+  const handleTestFinish = async (answers: (string|null)[], violations: number, usedQuestions: MCQ[]) => {
       if (!activeTest || !currentUser || !studentInfo) return;
-      const score = activeTest.questions.reduce((acc, q, i) => q.answer === answers[i] ? acc + 1 : acc, 0);
+      
+      // Calculate score based on the questions order the user actually saw
+      const score = usedQuestions.reduce((acc, q, i) => {
+          // Robust checking for correct answer property
+          const correctVal = q.correctAnswer || q.answer;
+          return (answers[i] === correctVal) ? acc + 1 : acc;
+      }, 0);
       
       const attempt: TestAttempt = { 
-          id: doc(collection(db, "testAttempts")).id, testId: activeTest.id, studentId: currentUser.id, testTitle: activeTest.title, student: studentInfo, score, totalQuestions: activeTest.questions.length, answers, date: new Date(), violations,
-          questions: activeTest.questions // SNAPSHOT QUESTIONS FOR HISTORY
+          id: doc(collection(db, "testAttempts")).id, 
+          testId: activeTest.id, 
+          studentId: currentUser.id, 
+          testTitle: activeTest.title, 
+          student: studentInfo, 
+          score, 
+          totalQuestions: usedQuestions.length, 
+          answers, 
+          timestamp: Date.now(), 
+          violations,
+          questions: usedQuestions // SAVE EXACT SHUFFLED ORDER USED
       };
       
       await setDoc(doc(db, "testAttempts", attempt.id), attempt);
-      setTestHistory(p => [...p, attempt]);
+      
+      // Update local states
+      setTestHistory(p => [attempt, ...p]);
+      setTestAttempts(p => [...p, attempt]); // Update analytics data
       
       if (violations >= 3) {
           await updateDoc(doc(db, "tests", activeTest.id), { disqualifiedStudents: arrayUnion(currentUser.id) });
@@ -452,24 +469,43 @@ const App: React.FC = () => {
             onNavigate={handleNavigate} 
         />;
 
-      case 'content': return <ContentLibrary generatedSets={userGeneratedSets} publishedTests={publishedTests} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onViewTestAnalytics={(t) => { setAnalyticsTest(t); setView('testAnalytics'); }} onNavigate={handleNavigate} />;
+      case 'content': case 'library': 
+        return <ContentLibrary generatedSets={userGeneratedSets} publishedTests={publishedTests} onPublishTest={handlePublishTest} onRevokeTest={handleRevokeTest} onViewTestAnalytics={(t) => { setAnalyticsTest(t); setView('testAnalytics'); }} onNavigate={handleNavigate} />;
       case 'network': return <NetworkCenter followRequests={followRequests} connectionRequests={connectionRequests} followers={followers} following={followingList} onSendFollowRequest={handleSendFollowRequest} onFollowRequestResponse={handleFollowRequestResponse} onAcceptConnection={handleAcceptConnection} onRejectConnection={handleRejectConnection} />;
       case 'integrity': return <IntegrityCenter violationAlerts={violationAlerts} ignoredNotifications={ignoredByStudents} onGrantReattempt={async () => {}} />;
       case 'profile': return <ProfilePage user={currentUser} onLogout={() => { signOut(auth); setView('auth'); }} onBack={() => handleNavigate('dashboard')} />;
       
       // Test execution & results
       case 'testResults': 
-        // Logic: prefer latest result questions (snapshot), then active test (just finished), then lookup from published
+        // Use questions from the result object first (to respect shuffle history), fallback to active/published
         const questionsToShow = latestTestResult?.questions || activeTest?.questions || publishedTests.find(t => t.id === latestTestResult?.testId)?.questions || [];
         return latestTestResult ? <TestResults result={latestTestResult} questions={questionsToShow} onNavigate={handleNavigate} /> : <ErrorMessage message="No result found." />;
       
-      case 'studentLogin': return activeTest ? <StudentLogin test={activeTest} onLogin={(info) => { setStudentInfo(info); setView('test'); }} /> : <ErrorMessage message="Test session expired." />;
+      case 'studentLogin': 
+        return activeTest 
+          ? <StudentLogin 
+              test={activeTest} 
+              currentUser={currentUser} // Pass currentUser for auto-fill
+              onLogin={(info) => { setStudentInfo(info); setView('test'); }} 
+            /> 
+          : <ErrorMessage message="Test session expired." />;
+          
       case 'test': return (activeTest && studentInfo) ? <TestPage test={activeTest} student={studentInfo} onFinish={handleTestFinish} /> : <ErrorMessage message="Invalid Test Session." />;
       
       // Utils
       case 'notifications': return <Notifications notifications={notifications} onStartTest={handleStartTest} onIgnoreTest={async (nid) => { await updateDoc(doc(db, "notifications", nid), { status: 'ignored' }); }} onBack={() => handleNavigate('dashboard')} />;
       case 'testHistory': return <TestHistory history={studentTestHistory} onNavigateBack={() => handleNavigate('dashboard')} onViewResult={(attempt) => { setLatestTestResult(attempt); setView('testResults'); }} />;
-      case 'testAnalytics': return analyticsTest ? <TestAnalytics test={analyticsTest} attempts={testAttempts} onBack={() => handleNavigate('content')} /> : <ErrorMessage message="Select a test." />;
+      
+      // Analytics: Filter attempts for the selected test
+      case 'testAnalytics': 
+        return analyticsTest 
+          ? <TestAnalytics 
+              test={analyticsTest} 
+              attempts={testAttempts.filter(a => a.testId === analyticsTest.id)} 
+              onBack={() => handleNavigate('content')} 
+            /> 
+          : <ErrorMessage message="Select a test." />;
+          
       case 'generator': return <McqGeneratorForm onGenerate={handleGenerateMcqs} isLoading={false} />;
       case 'results': return <div className="grid grid-cols-1 lg:grid-cols-2 gap-8"><McqGeneratorForm onGenerate={handleGenerateMcqs} isLoading={false} /><div className="bg-white p-6 rounded-lg shadow">{error ? <ErrorMessage message={error} /> : <McqList mcqs={mcqs} />}</div></div>;
       case 'manualCreator': return <ManualMcqCreator onSaveSet={(mcqs) => { /* save logic */ }} onExportPDF={()=>{}} onExportWord={()=>{}} />;

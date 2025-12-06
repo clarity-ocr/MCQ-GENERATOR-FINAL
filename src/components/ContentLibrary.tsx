@@ -27,7 +27,7 @@ import { cn } from '../lib/utils';
 // --- SUB-COMPONENT: PublishModal ---
 interface PublishModalProps {
   questionCount: number;
-  onSubmit: (title: string, duration: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customFields: CustomFormField[], shuffleQuestions: boolean, shuffleOptions: boolean, attemptLimit: number) => void;
+  onSubmit: (title: string, duration: number, endDate: string | null, studentFieldsMode: 'default' | 'custom', customFields: CustomFormField[], shuffleQuestions: boolean, shuffleOptions: boolean, attemptLimit: number, allowSkip: boolean) => void;
   onClose: () => void;
 }
 
@@ -39,6 +39,7 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
   const [customFields, setCustomFields] = useState<CustomFormField[]>([{ label: '' }]);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [shuffleOptions, setShuffleOptions] = useState(false);
+  const [allowSkip, setAllowSkip] = useState(false);
   const [attemptLimit, setAttemptLimit] = useState(1);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +54,7 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
     }
 
     const finalFields = studentFieldsMode === 'custom' ? customFields.filter(f => f.label.trim() !== '') : [];
-    onSubmit(title, duration, endDate || null, studentFieldsMode, finalFields, shuffleQuestions, shuffleOptions, attemptLimit);
+    onSubmit(title, duration, endDate || null, studentFieldsMode, finalFields, shuffleQuestions, shuffleOptions, attemptLimit, allowSkip);
   };
 
   return (
@@ -90,15 +91,24 @@ const PublishModal: React.FC<PublishModalProps> = ({ questionCount, onSubmit, on
                 <p className="text-[10px] text-muted-foreground">Test closes automatically after this time.</p>
             </div>
 
-            <div className="flex gap-4 p-3 bg-muted/30 rounded-lg">
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                    <input type="checkbox" checked={shuffleQuestions} onChange={e => setShuffleQuestions(e.target.checked)} className="rounded border-gray-300 text-primary focus:ring-primary"/>
-                    Shuffle Questions
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                    <input type="checkbox" checked={shuffleOptions} onChange={e => setShuffleOptions(e.target.checked)} className="rounded border-gray-300 text-primary focus:ring-primary"/>
-                    Shuffle Options
-                </label>
+            <div className="flex flex-col gap-2 p-3 bg-muted/30 rounded-lg">
+                <div className="flex gap-4">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input type="checkbox" checked={shuffleQuestions} onChange={e => setShuffleQuestions(e.target.checked)} className="rounded border-gray-300 text-primary focus:ring-primary"/>
+                        Shuffle Questions
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input type="checkbox" checked={shuffleOptions} onChange={e => setShuffleOptions(e.target.checked)} className="rounded border-gray-300 text-primary focus:ring-primary"/>
+                        Shuffle Options
+                    </label>
+                </div>
+                <div className="flex gap-4">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input type="checkbox" checked={allowSkip} onChange={e => setAllowSkip(e.target.checked)} className="rounded border-gray-300 text-primary focus:ring-primary"/>
+                        Allow Skipping Questions
+                    </label>
+                </div>
+                <p className="text-[10px] text-muted-foreground">If "Allow Skipping" is unchecked, students must answer all questions to submit.</p>
             </div>
 
             {error && (

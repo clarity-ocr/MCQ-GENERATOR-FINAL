@@ -48,7 +48,10 @@ export type View =
   | 'facultyPortal' 
   | 'following' 
   | 'followers' 
-  | 'connect';
+  | 'connect'
+  | 'library'
+  | 'analytics'
+  | 'taking_test';
 
 export interface AppUser {
   id: string; 
@@ -86,11 +89,26 @@ export interface ChatMessage {
   timestamp: string | Date;
 }
 
+export interface FollowRequest {
+  id: string;
+  studentId: string;
+  studentEmail: string;
+  facultyId: string;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface CustomFormField {
+  label: string;
+  required?: boolean; 
+}
+
 export interface MCQ {
+  id?: string; 
   question: string;
   options: string[];
-  answer: string;
-  explanation: string;
+  correctAnswer: string;
+  answer?: string;
+  explanation?: string;
 }
 
 export interface FormState {
@@ -106,61 +124,55 @@ export interface FormState {
   aiProvider: AiProvider;
 }
 
-export interface CustomFormField {
-    label: string;
+export interface GeneratedMcqSet {
+  id: string;
+  topic?: string; 
+  facultyId?: string; 
+  timestamp: string | Date; 
+  mcqs: MCQ[];
+  sourceFile?: string;
 }
 
 export interface Test {
   id: string;
-  facultyId: string;
+  facultyId?: string; 
   title: string;
   durationMinutes: number;
   questions: MCQ[];
   studentFieldsMode: 'default' | 'custom';
   customStudentFields: CustomFormField[];
   endDate: string | null;
+  createdAt?: string; 
   disqualifiedStudents?: string[];
-  // New Control Fields
-  shuffleQuestions?: boolean;
-  shuffleOptions?: boolean;
-  attemptLimit?: number; 
-}
-
-export interface GeneratedMcqSet {
-  id: string;
-  facultyId: string;
-  timestamp: Date;
-  mcqs: MCQ[];
+  
+  // Control Fields
+  shuffleQuestions: boolean;
+  shuffleOptions: boolean;
+  attemptLimit: number; 
+  allowSkip?: boolean; // Added allowSkip (optional to support legacy data)
 }
 
 export interface Student {
   name: string;
   registrationNumber: string;
-  branch: string;
-  section: string;
+  branch?: string; 
+  section?: string; 
   customData?: { [key: string]: string };
 }
 
 export interface TestAttempt {
   id: string;
   testId: string;
-  studentId: string;
-  testTitle: string;
+  studentId?: string; 
+  testTitle?: string; 
   student: Student;
   score: number;
   totalQuestions: number;
-  answers: (string | null)[]; // User's selected answers
-  date: Date;
+  answers: (string | null)[]; 
+  timestamp: number; 
+  date?: Date;       
   violations: number;
   questions?: MCQ[]; 
-}
-
-export interface FollowRequest {
-  id: string;
-  studentId: string;
-  studentEmail: string;
-  facultyId: string;
-  status: 'pending' | 'accepted' | 'rejected';
 }
 
 export interface AppNotification {
