@@ -70,7 +70,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Username Logic
-  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
+  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error' | 'invalid'>('idle');
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   const [formData, setFormData] = useState<RegistrationData>({
@@ -105,40 +105,50 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
   }, [formData.state]);
 
   const checkUsername = async (username: string) => {
-    if (!username || username.length < 3 || !/^[a-z0-9_]+$/.test(username)) {
-      setUsernameStatus('idle');
+    // Basic validation check again just in case
+    if (!username || username.length < 4) {
+      setUsernameStatus('invalid');
       return;
     }
 
     setUsernameStatus('checking');
     try {
-      // NOTE: This query requires the 'allow read: if true' rule in firestore.rules
       const q = query(collection(db, "users"), where("username", "==", username));
       const querySnapshot = await getDocs(q);
       setUsernameStatus(querySnapshot.empty ? 'available' : 'taken');
     } catch (err) {
       console.error("Username check error:", err);
-      // Fallback: If network/rules fail, allow user to try submitting (server will catch it)
       setUsernameStatus('idle'); 
     }
   };
 
   const handleInputChange = (field: keyof RegistrationData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
     setError(null);
 
     if (field === 'username') {
-      const cleanValue = value.toLowerCase().replace(/[^a-z0-9_]/g, '');
-      setFormData(prev => ({ ...prev, username: cleanValue }));
-      
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      
-      if (cleanValue.length >= 3) {
-        setUsernameStatus('checking');
-        debounceTimer.current = setTimeout(() => checkUsername(cleanValue), 500);
-      } else {
-        setUsernameStatus('idle');
-      }
+        // --- STRICT TWITTER/X LOGIC ---
+        // 1. Convert to lowercase immediately
+        // 2. Remove anything that is NOT a-z, 0-9, or underscore
+        // 3. Enforce Max Limit of 15 chars
+        const cleanValue = value.toLowerCase()
+            .replace(/[^a-z0-9_]/g, '')
+            .slice(0, 15);
+
+        setFormData(prev => ({ ...prev, username: cleanValue }));
+        
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+        
+        // --- VALIDATION STATE ---
+        if (cleanValue.length === 0) {
+            setUsernameStatus('idle');
+        } else if (cleanValue.length < 4) {
+            setUsernameStatus('invalid'); // Too short
+        } else {
+            setUsernameStatus('checking');
+            debounceTimer.current = setTimeout(() => checkUsername(cleanValue), 500);
+        }
+    } else {
+        setFormData(prev => ({ ...prev, [field]: value }));
     }
   };
 
@@ -178,8 +188,9 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
     }
     
     if (currentStep === 2) { 
-      if (formData.username.length < 3) return "Username must be at least 3 characters.";
+      if (formData.username.length < 4) return "Username must be at least 4 characters.";
       if (usernameStatus === 'taken') return "Username is already taken.";
+      if (usernameStatus === 'invalid') return "Invalid username format.";
       if (!formData.name.trim()) return "Full name is required.";
     }
     
@@ -309,8 +320,18 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
                     className="bg-white/50 dark:bg-black/20"
                   />
                 </div>
+                
+                {/* --- STRICT USERNAME INPUT --- */}
                 <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
+                  <div className="flex justify-between items-center">
+                    <Label htmlFor="username">Username</Label>
+                    <span className={cn(
+                        "text-[10px] font-mono transition-colors",
+                        formData.username.length === 15 ? "text-orange-500" : "text-muted-foreground"
+                    )}>
+                        {formData.username.length}/15
+                    </span>
+                  </div>
                   <div className="relative">
                     <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
                     <Input 
@@ -318,28 +339,35 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
                       value={formData.username}
                       onChange={(e) => handleInputChange('username', e.target.value)}
                       placeholder="username"
+                      maxLength={15}
                       className={cn(
-                        "pl-9 pr-9 bg-white/50 dark:bg-black/20 transition-all",
+                        "pl-9 pr-9 bg-white/50 dark:bg-black/20 transition-all font-mono tracking-tight",
                         usernameStatus === 'taken' && "border-destructive focus-visible:ring-destructive",
-                        usernameStatus === 'available' && "border-green-500 focus-visible:ring-green-500"
+                        usernameStatus === 'available' && "border-green-500 focus-visible:ring-green-500",
+                        usernameStatus === 'invalid' && "border-orange-400 focus-visible:ring-orange-400"
                       )}
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
                       {usernameStatus === 'checking' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                       {usernameStatus === 'available' && <Check className="h-4 w-4 text-green-500" />}
                       {usernameStatus === 'taken' && <X className="h-4 w-4 text-destructive" />}
+                      {usernameStatus === 'invalid' && <AlertCircle className="h-4 w-4 text-orange-400" />}
                     </div>
                   </div>
-                  <div className="flex justify-between items-center min-h-[1.25rem]">
+                  
+                  {/* Status Helper Text */}
+                  <div className="flex justify-between items-start min-h-[1.5rem]">
                     <p className={cn(
                       "text-xs transition-colors",
                       usernameStatus === 'taken' ? "text-destructive font-medium" : 
                       usernameStatus === 'available' ? "text-green-600 font-medium" : 
+                      usernameStatus === 'invalid' ? "text-orange-500" :
                       "text-muted-foreground"
                     )}>
-                      {usernameStatus === 'taken' ? "Username is already taken" :
-                       usernameStatus === 'available' ? "Username is available" :
-                       "Unique handle for your profile"}
+                      {usernameStatus === 'taken' ? "Handle is taken" :
+                       usernameStatus === 'available' ? "Handle available!" :
+                       usernameStatus === 'invalid' ? "Min 4 chars. Letters, nums, underscore only." :
+                       "Only letters, numbers, and '_' allowed."}
                     </p>
                   </div>
                 </div>
@@ -422,7 +450,7 @@ export const AuthPortal: React.FC<AuthPortalProps> = ({
                     <Button 
                       type="button" 
                       onClick={handleNext} 
-                      disabled={step === 2 && (usernameStatus === 'checking' || usernameStatus === 'taken')}
+                      disabled={step === 2 && (usernameStatus === 'checking' || usernameStatus === 'taken' || usernameStatus === 'invalid')}
                       className="w-full h-11 font-semibold"
                     >
                       Next Step <ArrowRight className="ml-2 h-4 w-4" />
