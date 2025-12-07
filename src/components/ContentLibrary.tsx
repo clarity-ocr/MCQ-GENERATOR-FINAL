@@ -10,15 +10,14 @@ import {
   Share2, 
   Trash2, 
   PlusCircle, 
-  ChevronDown, 
-  ChevronUp, 
   Clock, 
   Calendar,
   AlertCircle,
   X,
   Copy,
   CheckCircle2,
-  Link as LinkIcon
+  Link as LinkIcon,
+  History
 } from 'lucide-react';
 import { McqDisplay } from './McqDisplay';
 import { Badge } from './ui/badge';
@@ -288,9 +287,17 @@ export const ContentLibrary: React.FC<ContentLibraryProps> = ({
           <h2 className="text-3xl font-bold tracking-tight">Content Library</h2>
           <p className="text-muted-foreground">Manage your drafts, publish tests, and track deadlines.</p>
         </div>
-        <Button onClick={() => onNavigate('generator')} className="shadow-lg shadow-primary/20">
-          <PlusCircle className="w-4 h-4 mr-2" /> Create New
-        </Button>
+        
+        <div className="flex gap-2">
+            {/* NEW: Test History Button */}
+            <Button variant="outline" onClick={() => onNavigate('testHistory')}>
+                <History className="w-4 h-4 mr-2" /> My Attempts
+            </Button>
+            
+            <Button onClick={() => onNavigate('generator')} className="shadow-lg shadow-primary/20">
+                <PlusCircle className="w-4 h-4 mr-2" /> Create New
+            </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

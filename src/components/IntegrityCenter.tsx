@@ -23,11 +23,8 @@ export const IntegrityCenter: React.FC<IntegrityCenterProps> = ({
       </h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Violations */}
         <Card className="border-destructive/20 bg-destructive/5">
-          <CardHeader>
-            <CardTitle className="text-destructive">Active Violations</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-destructive">Active Violations</CardTitle></CardHeader>
           <CardContent className="space-y-4">
              {violationAlerts.length === 0 && <p className="text-muted-foreground">No active violations detected.</p>}
              {violationAlerts.map(alert => (
@@ -36,13 +33,8 @@ export const IntegrityCenter: React.FC<IntegrityCenterProps> = ({
           </CardContent>
         </Card>
 
-        {/* Ignored/Missed */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-               <BellOff className="w-5 h-5 text-gray-500" /> Ignored Tests Log
-            </CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2"><BellOff className="w-5 h-5 text-gray-500" /> Ignored Tests Log</CardTitle></CardHeader>
           <CardContent className="space-y-3">
              {ignoredNotifications.length === 0 && <p className="text-muted-foreground">No data available.</p>}
              {ignoredNotifications.map(notif => (

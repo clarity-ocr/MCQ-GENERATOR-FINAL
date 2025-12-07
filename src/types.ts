@@ -1,5 +1,7 @@
 // src/types.ts
 
+// --- Enums ---
+
 export enum Difficulty {
   Easy = "Easy",
   Medium = "Medium",
@@ -26,14 +28,18 @@ export enum Role {
   Student = 'student',
 }
 
+// --- Navigation Types ---
+
 export type View = 
   | 'auth' 
   | 'emailVerification' 
   | 'idVerification' 
+  // Main Views
   | 'dashboard'     
   | 'content'       
   | 'network'       
   | 'integrity'     
+  // Sub Views / Actions
   | 'generator' 
   | 'results' 
   | 'manualCreator' 
@@ -44,17 +50,18 @@ export type View =
   | 'notifications' 
   | 'testAnalytics' 
   | 'profile' 
+  // Legacy / Redirections
   | 'studentPortal' 
   | 'facultyPortal' 
   | 'following' 
   | 'followers' 
   | 'connect'
-  | 'library'
-  | 'analytics'
-  | 'taking_test';
+  | 'certificate';
+
+// --- User & Social Interfaces ---
 
 export interface AppUser {
-  id: string; 
+  id: string; // Firebase UID
   username: string;
   name: string;
   email: string;
@@ -65,9 +72,9 @@ export interface AppUser {
   district: string;
   facultyId: string;
   isIdVerified: boolean;
-  following: string[]; 
-  followers?: string[]; 
-  facultyConnections?: string[]; 
+  following: string[]; // Array of User IDs
+  followers?: string[]; // Array of User IDs
+  facultyConnections?: string[]; // Array of User IDs
 }
 
 export interface ConnectionRequest {
@@ -76,6 +83,14 @@ export interface ConnectionRequest {
   fromFacultyName: string;
   fromFacultyCollege: string;
   toFacultyId: string;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface FollowRequest {
+  id: string;
+  studentId: string;
+  studentEmail: string;
+  facultyId: string;
   status: 'pending' | 'accepted' | 'rejected';
 }
 
@@ -89,26 +104,14 @@ export interface ChatMessage {
   timestamp: string | Date;
 }
 
-export interface FollowRequest {
-  id: string;
-  studentId: string;
-  studentEmail: string;
-  facultyId: string;
-  status: 'pending' | 'accepted' | 'rejected';
-}
-
-export interface CustomFormField {
-  label: string;
-  required?: boolean; 
-}
+// --- Content & Test Interfaces ---
 
 export interface MCQ {
-  id?: string; 
   question: string;
   options: string[];
-  correctAnswer: string;
-  answer?: string;
+  answer: string;
   explanation?: string;
+  correctAnswer?: string; // Fallback for some AI models
 }
 
 export interface FormState {
@@ -124,65 +127,76 @@ export interface FormState {
   aiProvider: AiProvider;
 }
 
-export interface GeneratedMcqSet {
-  id: string;
-  topic?: string; 
-  facultyId?: string; 
-  timestamp: string | Date; 
-  mcqs: MCQ[];
-  sourceFile?: string;
+export interface CustomFormField {
+    label: string;
+    required?: boolean;
 }
 
 export interface Test {
   id: string;
-  facultyId?: string; 
+  facultyId: string;
   title: string;
   durationMinutes: number;
   questions: MCQ[];
   studentFieldsMode: 'default' | 'custom';
   customStudentFields: CustomFormField[];
   endDate: string | null;
-  createdAt?: string; 
   disqualifiedStudents?: string[];
-  
-  // Control Fields
-  shuffleQuestions: boolean;
-  shuffleOptions: boolean;
-  attemptLimit: number; 
-  allowSkip?: boolean; // Added allowSkip (optional to support legacy data)
+  // Advanced Controls
+  shuffleQuestions?: boolean;
+  shuffleOptions?: boolean;
+  attemptLimit?: number;
+  allowSkip?: boolean;
 }
+
+export interface GeneratedMcqSet {
+  id: string;
+  facultyId: string;
+  timestamp: Date;
+  mcqs: MCQ[];
+}
+
+// --- Student Execution Interfaces ---
 
 export interface Student {
   name: string;
   registrationNumber: string;
-  branch?: string; 
-  section?: string; 
+  branch: string;
+  section: string;
   customData?: { [key: string]: string };
 }
 
 export interface TestAttempt {
   id: string;
   testId: string;
-  studentId?: string; 
-  testTitle?: string; 
+  studentId: string;
+  testTitle: string;
   student: Student;
   score: number;
   totalQuestions: number;
-  answers: (string | null)[]; 
-  timestamp: number; 
-  date?: Date;       
+  answers: (string | null)[];
+  date: Date; // Unified date field (replaced timestamp)
   violations: number;
-  questions?: MCQ[]; 
+  questions?: MCQ[]; // Snapshot of questions at time of attempt
 }
+
+// --- System Interfaces ---
 
 export interface AppNotification {
   id: string;
-  studentId: string;
+  studentId: string; // Recipient
   studentEmail: string;
-  facultyId: string;
+  facultyId: string; // Sender
   facultyName: string;
-  test: Test;
-  status: 'new' | 'ignored';
+  
+  // Dynamic Content
+  type?: 'test_invite' | 'message' | 'alert'; 
+  title?: string;
+  message?: string;
+  test?: Test; // Optional (only for test_invite)
+  
+  status: 'new' | 'read' | 'ignored';
+  timestamp?: string; // ISO String
   actionTimestamp?: string;
 }
 

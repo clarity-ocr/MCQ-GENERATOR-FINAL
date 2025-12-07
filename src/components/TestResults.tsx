@@ -49,7 +49,9 @@ export const TestResults: React.FC<TestResultsProps> = ({ result, questions, onN
           </CardContent>
         </Card>
         <div className="flex flex-col gap-3 min-w-[250px]">
-            <Card className="flex-1 bg-muted/30"><CardContent className="p-4 flex items-center gap-3"><div className="p-2 bg-blue-100 rounded-full text-blue-600"><Clock className="w-5 h-5" /></div><div><p className="text-xs text-muted-foreground">Completed On</p><p className="font-semibold text-sm">{new Date(result.timestamp).toLocaleDateString()}</p><p className="text-xs text-muted-foreground">{new Date(result.timestamp).toLocaleTimeString()}</p></div></CardContent></Card>
+            <Card className="flex-1 bg-muted/30"><CardContent className="p-4 flex items-center gap-3"><div className="p-2 bg-blue-100 rounded-full text-blue-600"><Clock className="w-5 h-5" /></div><div><p className="text-xs text-muted-foreground">Completed On</p>
+            {/* FIXED: Use result.date instead of result.timestamp */}
+            <p className="font-semibold text-sm">{new Date(result.date).toLocaleDateString()}</p><p className="text-xs text-muted-foreground">{new Date(result.date).toLocaleTimeString()}</p></div></CardContent></Card>
             <Card className="flex-1 bg-muted/30"><CardContent className="p-4 flex items-center gap-3"><div className="p-2 bg-red-100 rounded-full text-red-600"><AlertTriangle className="w-5 h-5" /></div><div><p className="text-xs text-muted-foreground">Integrity Report</p><p className="font-semibold text-sm">{result.violations} Violations</p></div></CardContent></Card>
         </div>
       </div>
