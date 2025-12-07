@@ -92,7 +92,7 @@ export const Certificate: React.FC<CertificateProps> = ({ attempt, onBack }) => 
             
             {/* 1. Header */}
             <div className="text-center mb-10">
-                <div className="text-sm font-bold tracking-[0.3em] text-amber-700 uppercase mb-2">Quizly AI Certifications</div>
+                <div className="text-sm font-bold tracking-[0.3em] text-amber-700 uppercase mb-2">Quizapo AI Certifications</div>
                 <h1 className="text-7xl font-bold text-gray-900 tracking-wide mb-2 uppercase" style={{ fontFamily: "serif" }}>Certificate</h1>
                 <h2 className="text-3xl italic text-gray-500 font-light">of Achievement</h2>
             </div>
@@ -130,7 +130,7 @@ export const Certificate: React.FC<CertificateProps> = ({ attempt, onBack }) => 
                 {/* Signature 1 */}
                 <div className="text-center">
                     <div className="w-56 border-b border-gray-400 mb-2 font-cursive text-2xl text-blue-800 pb-1" style={{fontFamily: 'cursive'}}>
-                        Quizly System
+                        Jeevasurya
                     </div>
                     <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Platform Authority</p>
                 </div>

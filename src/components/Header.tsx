@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Logo */}
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => onNavigate('dashboard')}>
           <div className="bg-primary text-primary-foreground p-1.5 rounded-lg font-bold text-xl">Q</div>
-          <span className="font-bold text-xl hidden sm:inline-block">Quizly AI</span>
+          <span className="font-bold text-xl hidden sm:inline-block">Quizapo AI</span>
         </div>
 
         {/* Desktop Nav */}
